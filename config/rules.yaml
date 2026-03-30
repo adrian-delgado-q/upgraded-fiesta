@@ -1,0 +1,348 @@
+active_profile: software_platform
+
+profiles:
+  base_framework:
+    normalization:
+      title_replacements:
+        qa: quality assurance
+        sdet: software development engineer in test
+        sr.: senior
+        devops: devops
+      seniority_taxonomy:
+        - value: staff
+          keywords: [staff, principal, lead]
+        - value: senior
+          keywords: [senior, sr.]
+        - value: junior
+          keywords: [junior, intern, apprentice]
+        - value: mid
+          keywords: []
+      work_mode_taxonomy:
+        - value: hybrid
+          keywords: [hybrid]
+        - value: remote
+          keywords: [remote, work from home]
+        - value: onsite
+          keywords: [onsite, on-site, field based, site based]
+      locations:
+        allowed_countries: [canada, united states, united kingdom, uk, usa, us]
+        country_aliases:
+          canada: Canada
+          us: United States
+          usa: United States
+          united states: United States
+          uk: United Kingdom
+          united kingdom: United Kingdom
+    extraction:
+      vocabularies:
+        skills:
+          terms:
+            - python
+            - golang
+            - c++
+            - linux
+            - pytest
+            - selenium
+            - terraform
+            - kubernetes
+            - aws
+            - docker
+            - ros2
+            - commissioning
+            - troubleshooting
+            - preventive maintenance
+        tools:
+          terms:
+            - prometheus
+            - grafana
+            - github actions
+            - jenkins
+            - datadog
+            - cloudwatch
+            - argocd
+            - helm
+            - postgresql
+            - redis
+        certifications:
+          terms:
+            - plc
+            - hvac
+            - electrical safety
+        domains:
+          terms:
+            - robotics
+            - autonomy
+            - validation
+            - verification
+            - platform
+            - reliability
+            - release engineering
+            - field service
+            - installation
+            - maintenance
+      signals:
+        robotics:
+          weight: 10
+          group: domain
+          sentiment: positive
+        autonomy:
+          weight: 8
+          group: domain
+          sentiment: positive
+        hil:
+          weight: 10
+          group: domain
+          sentiment: positive
+          terms: [hil, hardware in the loop]
+        validation:
+          weight: 8
+          group: domain
+          sentiment: positive
+        verification:
+          weight: 8
+          group: domain
+          sentiment: positive
+        platform:
+          weight: 7
+          group: domain
+          sentiment: positive
+        reliability:
+          weight: 7
+          group: domain
+          sentiment: positive
+        ci_cd:
+          weight: 6
+          group: keyword
+          sentiment: positive
+          terms: [ci/cd, github actions, jenkins]
+        customer_support:
+          weight: 10
+          group: negative
+          sentiment: negative
+          terms: [customer support, technical support, helpdesk]
+        operator:
+          weight: 15
+          group: negative
+          sentiment: negative
+        technician:
+          weight: 12
+          group: negative
+          sentiment: negative
+    scoring:
+      prefilter:
+        - reason: Rejected due to junior/intern title signal
+          when:
+            - field: title_normalized
+              operator: contains_any
+              values: [intern, junior]
+      categories:
+        title:
+          kind: rules
+          default_score: 0
+          rules:
+            - score: 30
+              reason: Title aligned with target role family
+              when:
+                - field: role_family
+                  operator: in
+                  values: [platform, reliability, validation_verification, release_ci_cd, robotics_autonomy_test, field_service, installation]
+            - score: 10
+              reason: Title has partial overlap
+              when:
+                - field: title_normalized
+                  operator: contains_any
+                  values: [engineer, technician, specialist]
+        seniority:
+          kind: value_map
+          field: seniority
+          default_score: 0
+          map:
+            staff: 10
+            senior: 8
+            mid: 3
+            junior: -20
+        location:
+          kind: rules
+          default_score: 0
+          rules:
+            - score: 8
+              reason: Allowed country with remote flexibility
+              when:
+                - field: location_country
+                  operator: in
+                  values: [canada, united states, united kingdom]
+                - field: work_mode
+                  operator: equals
+                  value: remote
+            - score: 5
+              reason: Allowed country
+              when:
+                - field: location_country
+                  operator: in
+                  values: [canada, united states, united kingdom]
+            - score: -30
+              reason: Location outside allowed countries
+              when:
+                - field: location_country
+                  operator: not_in
+                  values: [canada, united states, united kingdom]
+        salary:
+          kind: rules
+          default_score: 0
+          rules:
+            - score: 0
+              when:
+                - field: salary_min_cad
+                  operator: missing
+            - score: -25
+              reason: Salary below desired floor
+              when:
+                - field: salary_min_cad
+                  operator: lt
+                  value: 90000
+            - score: 4
+              reason: Salary above desired floor
+              when:
+                - field: salary_min_cad
+                  operator: gte
+                  value: 90000
+        domain:
+          kind: signal_group
+          signal_group: domain
+          default_score: 0
+          cap: 25
+        keyword:
+          kind: signal_group
+          signal_group: keyword
+          default_score: 0
+          cap: 25
+        negative:
+          kind: signal_group
+          signal_group: negative
+          default_score: 0
+          floor: -35
+      thresholds:
+        shortlisted: 80
+        review: 65
+        maybe: 50
+      llm:
+        analyze_threshold: 35
+        deterministic_weight: 0.6
+        llm_weight: 0.4
+    llm:
+      extraction_enabled: true
+      evaluation_enabled: true
+      extraction_guidance: Extract reusable job facets that would help profile-driven scoring across professions.
+      evaluation_guidance: Judge fit against the active profile, not just title similarity.
+    search:
+      providers: [ashby, lever, greenhouse]
+      locations: [Toronto, Remote Canada, Remote United States]
+    defaults:
+      role_family: general
+      seniority: mid
+      work_mode: ""
+      location_country: ""
+
+  software_platform:
+    extends: [base_framework]
+    normalization:
+      role_taxonomy:
+        - value: robotics_autonomy_test
+          variants: [qa engineer, validation engineer, autonomy test engineer]
+          keywords: [robotics, autonomy, ros2, sensors, hil]
+        - value: reliability
+          variants: [site reliability engineer, reliability engineer, sre, production engineer]
+          keywords: [site reliability, observability, incident response, datadog, cloudwatch, prometheus, grafana]
+        - value: validation_verification
+          variants: [systems test engineer, verification engineer, quality assurance engineer, software development engineer in test]
+          keywords: [systems test, validation, verification, quality assurance, test automation, pytest, selenium]
+        - value: platform
+          variants: [platform engineer, devops engineer, infrastructure engineer, cloud engineer]
+          keywords: [platform, devops, infrastructure, aws, docker, kubernetes, terraform, helm, argocd, redis, postgresql]
+        - value: release_ci_cd
+          variants: [release engineer, deployment engineer, build and release engineer, ci/cd engineer]
+          keywords: [release engineering, ci/cd, github actions, jenkins, deployment]
+    search:
+      query_terms:
+        - platform engineer
+        - site reliability engineer
+        - verification engineer
+        - release engineer
+      locations:
+        - Toronto
+        - Mississauga
+        - Vancouver
+        - Canada
+        - Remote
+        - Boston
+        - Miami
+        - San Francisco
+        - Remote United States
+    defaults:
+      role_family: platform
+
+  field_service:
+    extends: [base_framework]
+    normalization:
+      title_replacements:
+        mech: mechanical
+      role_taxonomy:
+        - value: field_service
+          variants: [field service technician, service technician, maintenance technician]
+          keywords: [field service, preventive maintenance, troubleshooting, repair, commissioning]
+        - value: installation
+          variants: [installation technician, service installer]
+          keywords: [installation, site visit, commissioning, mechanical, electrical]
+    scoring:
+      categories:
+        title:
+          kind: rules
+          default_score: 0
+          rules:
+            - score: 28
+              reason: Title aligned with field-service profile
+              when:
+                - field: role_family
+                  operator: in
+                  values: [field_service, installation]
+            - score: 8
+              reason: Title has service overlap
+              when:
+                - field: title_normalized
+                  operator: contains_any
+                  values: [service, installation, maintenance]
+        salary:
+          kind: rules
+          default_score: 0
+          rules:
+            - score: 0
+              when:
+                - field: salary_min_cad
+                  operator: missing
+            - score: -15
+              reason: Salary below desired field threshold
+              when:
+                - field: salary_min_cad
+                  operator: lt
+                  value: 65000
+            - score: 4
+              reason: Salary at or above desired field threshold
+              when:
+                - field: salary_min_cad
+                  operator: gte
+                  value: 65000
+      thresholds:
+        shortlisted: 70
+        review: 55
+        maybe: 40
+    search:
+      query_terms:
+        - field service technician
+        - installation technician
+        - maintenance technician
+      locations:
+        - Toronto
+        - Canada
+        - United States
+    defaults:
+      role_family: field_service
