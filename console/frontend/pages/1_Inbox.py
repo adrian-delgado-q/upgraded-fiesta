@@ -55,26 +55,43 @@ jobs = client.get(
     },
 )
 st.caption(f"Showing up to {int(max_items)} matching jobs")
-selected_id, action = render_jobs_table(jobs)
+table_container = st.container()
+detail_container = None
+if st.session_state.get(SELECTION_KEY):
+    table_container, detail_container = st.columns([1.75, 1.0], vertical_alignment="top")
+
+with table_container:
+    selected_id, action = render_jobs_table(
+        jobs,
+        selection_key=SELECTION_KEY,
+        empty_message="No jobs match the current inbox filters.",
+        enable_sorting=True,
+        toolbar_message="Shortlist moves items out of Inbox. Reject hides them everywhere.",
+    )
 if action:
     st.session_state[PENDING_ACTION_KEY] = action
     st.rerun()
 
 if selected_id:
-    job = client.get(f"/jobs/{selected_id}")
-    breakdown = None
-    try:
-        breakdown = client.get(f"/jobs/{selected_id}/score-breakdown")
-    except Exception:
+    with detail_container or st.container():
+        st.markdown("### Open Role")
+        job = client.get(f"/jobs/{selected_id}")
         breakdown = None
-    col1, col2, col3 = st.columns(3)
-    if col1.button("Reject", key=f"detail-reject-{selected_id}"):
-        client.post(f"/jobs/{selected_id}/reject", {})
-        st.session_state.pop(SELECTION_KEY, None)
-        st.rerun()
-    if col2.button("Shortlist", key=f"detail-shortlist-{selected_id}"):
-        client.post(f"/jobs/{selected_id}/shortlist", {"triage_status": "shortlisted", "shortlist_reason": "Manual shortlist"})
-        st.session_state.pop(SELECTION_KEY, None)
-        st.rerun()
-    col3.markdown(f"[Open Posting]({job['url']})")
-    render_detail_panel(job, breakdown)
+        try:
+            breakdown = client.get(f"/jobs/{selected_id}/score-breakdown")
+        except Exception:
+            breakdown = None
+        col1, col2, col3 = st.columns(3)
+        if col1.button("Close", key=f"detail-close-{selected_id}"):
+            st.session_state.pop(SELECTION_KEY, None)
+            st.rerun()
+        if col2.button("Reject", key=f"detail-reject-{selected_id}"):
+            client.post(f"/jobs/{selected_id}/reject", {})
+            st.session_state.pop(SELECTION_KEY, None)
+            st.rerun()
+        if col3.button("Shortlist", key=f"detail-shortlist-{selected_id}"):
+            client.post(f"/jobs/{selected_id}/shortlist", {"triage_status": "shortlisted", "shortlist_reason": "Manual shortlist"})
+            st.session_state.pop(SELECTION_KEY, None)
+            st.rerun()
+        st.markdown(f"[Open Posting]({job['url']})")
+        render_detail_panel(job, breakdown)

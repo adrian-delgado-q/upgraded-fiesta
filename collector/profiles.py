@@ -36,6 +36,20 @@ def _clean_string_mapping(value: Any) -> dict[str, str]:
     }
 
 
+def _clean_nested_string_mapping(value: Any) -> dict[str, list[str]]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("must be a mapping of string lists")
+    cleaned: dict[str, list[str]] = {}
+    for key, item in value.items():
+        cleaned_key = str(key).strip()
+        if not cleaned_key:
+            continue
+        cleaned[cleaned_key] = _clean_string_list(item)
+    return cleaned
+
+
 class TaxonomyRule(ProfileModel):
     value: str
     variants: list[str] = Field(default_factory=list)
@@ -57,6 +71,7 @@ class TaxonomyRule(ProfileModel):
 
 class LocationConfig(ProfileModel):
     allowed_countries: list[str] = Field(default_factory=list)
+    preferred_regions: dict[str, list[str]] = Field(default_factory=dict)
     country_aliases: dict[str, str] = Field(default_factory=dict)
     search_locations: list[str] = Field(default_factory=list)
 
@@ -69,6 +84,11 @@ class LocationConfig(ProfileModel):
     @classmethod
     def validate_mapping(cls, value: Any) -> dict[str, str]:
         return _clean_string_mapping(value)
+
+    @field_validator("preferred_regions", mode="before")
+    @classmethod
+    def validate_nested_mapping(cls, value: Any) -> dict[str, list[str]]:
+        return _clean_nested_string_mapping(value)
 
 
 class NormalizationConfig(ProfileModel):

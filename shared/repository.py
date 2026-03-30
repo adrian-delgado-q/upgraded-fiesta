@@ -42,6 +42,43 @@ def _parse_datetime(value: str | datetime | None) -> datetime | None:
     return value
 
 
+def apply_extraction_payload_to_job(job: Any, extraction_payload: dict[str, Any]) -> Any:
+    location = extraction_payload.get("location_interpretation")
+    location = location if isinstance(location, dict) else {}
+    compensation = extraction_payload.get("compensation")
+    compensation = compensation if isinstance(compensation, dict) else {}
+
+    title_normalized = str(extraction_payload.get("normalized_title") or "").strip()
+    if title_normalized:
+        job.title_normalized = title_normalized
+    role_family = str(extraction_payload.get("role_family") or "").strip()
+    if role_family:
+        job.role_family = role_family
+    seniority = str(extraction_payload.get("seniority") or "").strip()
+    if seniority:
+        job.seniority = seniority
+    work_mode = str(extraction_payload.get("work_mode") or "").strip()
+    if work_mode:
+        job.work_mode = work_mode
+
+    city = str(location.get("city") or "").strip() or None
+    region = str(location.get("region") or "").strip() or None
+    country = str(location.get("country") or "").strip() or None
+    if any((city, region, country)):
+        job.location_city = city
+        job.location_region = region
+        job.location_country = country
+
+    salary_is_explicit = bool(compensation.get("salary_is_explicit"))
+    if salary_is_explicit:
+        job.salary_min_cad = _optional_float(compensation.get("salary_min"))
+        job.salary_max_cad = _optional_float(compensation.get("salary_max"))
+        job.salary_currency = str(compensation.get("salary_currency") or "").strip().upper() or None
+        job.salary_period = str(compensation.get("salary_period") or "").strip().lower() or None
+
+    return job
+
+
 class Repository:
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = Path(database_path)
@@ -233,40 +270,22 @@ class Repository:
             session.commit()
 
     def apply_extraction_updates(self, job_id: int, extraction_payload: dict[str, Any]) -> None:
-        location = extraction_payload.get("location_interpretation")
-        location = location if isinstance(location, dict) else {}
-        compensation = extraction_payload.get("compensation")
-        compensation = compensation if isinstance(compensation, dict) else {}
         with Session(self.engine) as session:
             job = session.get(JobRow, job_id)
             if not job:
                 return
-            title_normalized = str(extraction_payload.get("normalized_title") or "").strip()
-            if title_normalized:
-                job.title_normalized = title_normalized
-            role_family = str(extraction_payload.get("role_family") or "").strip()
-            if role_family:
-                job.role_family = role_family
-            seniority = str(extraction_payload.get("seniority") or "").strip()
-            if seniority:
-                job.seniority = seniority
-            work_mode = str(extraction_payload.get("work_mode") or "").strip()
-            if work_mode:
-                job.work_mode = work_mode
-            city = str(location.get("city") or "").strip() or None
-            region = str(location.get("region") or "").strip() or None
-            country = str(location.get("country") or "").strip() or None
-            if any((city, region, country)):
-                job.location_city = city
-                job.location_region = region
-                job.location_country = country
+            had_location_update = any(
+                str((extraction_payload.get("location_interpretation") or {}).get(field) or "").strip()
+                for field in ("city", "region", "country")
+            )
+            had_salary_update = bool(
+                isinstance(extraction_payload.get("compensation"), dict)
+                and extraction_payload["compensation"].get("salary_is_explicit")
+            )
+            apply_extraction_payload_to_job(job, extraction_payload)
+            if had_location_update:
                 job.location_source = "llm"
-            salary_is_explicit = bool(compensation.get("salary_is_explicit"))
-            if salary_is_explicit:
-                job.salary_min_cad = _optional_float(compensation.get("salary_min"))
-                job.salary_max_cad = _optional_float(compensation.get("salary_max"))
-                job.salary_currency = str(compensation.get("salary_currency") or "").strip().upper() or None
-                job.salary_period = str(compensation.get("salary_period") or "").strip().lower() or None
+            if had_salary_update:
                 job.salary_source = "llm"
             session.add(job)
             session.commit()

@@ -51,6 +51,7 @@ class LLMSettings(ConfigModel):
     prompt_version: str = "framework-v1"
     enabled: bool = True
     timeout_seconds: int = 45
+    max_concurrent_requests: int = 5
 
 
 class RuntimeOptions(ConfigModel):

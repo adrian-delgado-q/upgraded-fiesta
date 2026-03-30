@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import html
-
 import streamlit as st
 
 from console.frontend.components.detail_panel import render_detail_panel
-from console.frontend.components.job_display import format_compensation_emphasis, format_job_score
-from console.frontend.components.jobs_table import _chip
+from console.frontend.components.jobs_table import (
+    DEFAULT_SHORTLIST_ACTIONS,
+    SHORTLIST_SELECTION_KEY,
+    render_jobs_table,
+)
 from console.frontend.config import get_api_base_url
 from console.frontend.services import ApiClient
 from console.frontend.styles import apply_shared_styles
@@ -24,6 +25,7 @@ if pending_action:
         client.post(f"/jobs/{action_job_id}/approve", {})
     elif action_name == "reject":
         client.post(f"/jobs/{action_job_id}/reject", {})
+    st.session_state.pop(SHORTLIST_SELECTION_KEY, None)
     st.rerun()
 
 st.title("Shortlist")
@@ -32,61 +34,44 @@ st.markdown(
     unsafe_allow_html=True,
 )
 jobs = client.get("/jobs", {"triage_status": "shortlisted"})
-if not jobs:
-    st.markdown('<div class="console-empty">No shortlisted jobs yet.</div>', unsafe_allow_html=True)
+table_container = st.container()
+detail_container = None
+if st.session_state.get(SHORTLIST_SELECTION_KEY):
+    table_container, detail_container = st.columns([1.75, 1.0], vertical_alignment="top")
 
-for job in jobs:
-    score = format_job_score(job)
-    compensation = format_compensation_emphasis(job)
-    toggle_key = f"shortlist-show-jd-{job['id']}"
-    st.session_state.setdefault(toggle_key, False)
+with table_container:
+    selected_id, action = render_jobs_table(
+        jobs,
+        selection_key=SHORTLIST_SELECTION_KEY,
+        empty_message="No shortlisted jobs yet.",
+        action_specs=DEFAULT_SHORTLIST_ACTIONS,
+        enable_sorting=False,
+        toolbar_message="Approve moves roles into Package. Reject removes them from every visible list.",
+    )
+if action:
+    st.session_state[PENDING_ACTION_KEY] = action
+    st.rerun()
 
-    row_cols = st.columns([6.2, 2.2], vertical_alignment="center")
-    with row_cols[0]:
-        title = html.escape(job["title_normalized"] or job["title_raw"] or "Untitled")
-        url = html.escape(job["url"] or "#", quote=True)
-        company = html.escape(job["company"] or "Unknown")
-        location = html.escape(job["location_raw"] or "Unknown")
-        source = html.escape(job["source"] or "Unknown")
-        work_mode = html.escape(job["work_mode"] or "Mode unknown")
-        role_family = html.escape(job["role_family"] or "Unknown")
-        seniority = html.escape(job["seniority"] or "Unknown")
-        st.markdown(
-            (
-                '<div class="console-card tight">'
-                f'<div class="console-card-title"><a href="{url}" target="_blank">{title}</a></div>'
-                f'<div class="console-card-meta">{company} | {location}</div>'
-                f'<div class="console-card-submeta">{source} | {work_mode}</div>'
-                '<div class="console-chip-row">'
-                f'{_chip(compensation, "$", "comp")}'
-                f'{_chip(f"Score {score}", "#", "score")}'
-                f'{_chip(role_family, "R")}'
-                f'{_chip(seniority, "S", "subtle")}'
-                '</div>'
-                '</div>'
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with row_cols[1]:
-        action_cols = st.columns(3)
-        if action_cols[0].button(
-            "Close" if st.session_state[toggle_key] else "View",
-            key=f"shortlist-view-{job['id']}",
-            use_container_width=True,
-        ):
-            st.session_state[toggle_key] = not st.session_state[toggle_key]
-            st.rerun()
-        if action_cols[1].button("Approve", key=f"approve-{job['id']}", use_container_width=True):
-            st.session_state[PENDING_ACTION_KEY] = ("approve", job["id"])
-            st.rerun()
-        if action_cols[2].button("Reject", key=f"shortlist-reject-{job['id']}", use_container_width=True):
-            st.session_state[PENDING_ACTION_KEY] = ("reject", job["id"])
-            st.rerun()
-
-    if st.session_state[toggle_key]:
+if selected_id:
+    with detail_container or st.container():
+        st.markdown("### Open Role")
+        job = client.get(f"/jobs/{selected_id}")
+        breakdown = None
         try:
-            breakdown = client.get(f"/jobs/{job['id']}/score-breakdown")
+            breakdown = client.get(f"/jobs/{selected_id}/score-breakdown")
         except Exception:
             breakdown = None
+        col1, col2, col3 = st.columns(3)
+        if col1.button("Close", key=f"shortlist-detail-close-{selected_id}"):
+            st.session_state.pop(SHORTLIST_SELECTION_KEY, None)
+            st.rerun()
+        if col2.button("Reject", key=f"shortlist-detail-reject-{selected_id}"):
+            client.post(f"/jobs/{selected_id}/reject", {})
+            st.session_state.pop(SHORTLIST_SELECTION_KEY, None)
+            st.rerun()
+        if col3.button("Approve", key=f"shortlist-detail-approve-{selected_id}"):
+            client.post(f"/jobs/{selected_id}/approve", {})
+            st.session_state.pop(SHORTLIST_SELECTION_KEY, None)
+            st.rerun()
+        st.markdown(f"[Open Posting]({job['url']})")
         render_detail_panel(job, breakdown)

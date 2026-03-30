@@ -1,4 +1,4 @@
-active_profile: software_platform
+active_profile: robotics_platform_validation
 
 profiles:
   base_framework:
@@ -7,151 +7,333 @@ profiles:
         qa: quality assurance
         sdet: software development engineer in test
         sr.: senior
+        sre: site reliability engineer
         devops: devops
+        infra: infrastructure
+        hil: hardware in the loop
+        ci/cd: ci cd
       seniority_taxonomy:
         - value: staff
           keywords: [staff, principal, lead]
         - value: senior
-          keywords: [senior, sr.]
+          keywords: [senior, sr., senior ii, senior iii]
         - value: junior
-          keywords: [junior, intern, apprentice]
+          keywords: [junior, intern, apprentice, new grad, graduate]
         - value: mid
           keywords: []
       work_mode_taxonomy:
         - value: hybrid
           keywords: [hybrid]
         - value: remote
-          keywords: [remote, work from home]
+          keywords: [remote, work from home, distributed]
         - value: onsite
-          keywords: [onsite, on-site, field based, site based]
+          keywords: [onsite, on-site, field based, site based, commissioning, travel required]
       locations:
-        allowed_countries: [canada, united states, united kingdom, uk, usa, us]
+        allowed_countries: [canada, united states]
+        preferred_regions:
+          canada: [toronto, ontario, vancouver, british columbia, montreal]
+          united_states: [remote, new york, boston, seattle, san francisco, miami]
         country_aliases:
           canada: Canada
-          us: United States
-          usa: United States
           united states: United States
-          uk: United Kingdom
-          united kingdom: United Kingdom
+          usa: United States
+          us: United States
+
     extraction:
       vocabularies:
         skills:
           terms:
             - python
             - golang
-            - c++
+            - typescript
+            - javascript
+            - bash
             - linux
             - pytest
             - selenium
-            - terraform
-            - kubernetes
-            - aws
+            - playwright
+            - behave
+            - graphql
+            - grpc
+            - rest api
             - docker
-            - ros2
-            - commissioning
-            - troubleshooting
-            - preventive maintenance
+            - docker compose
+            - terraform
+            - aws
+            - azure
+            - iam
+            - ec2
+            - sns
+            - cloudwatch
+            - nomad
+            - sql
+            - bigquery
+            - pydantic
+            - numpy
+            - fastapi
+            - uvicorn
+            - pytorch
+            - chromadb
+            - llamaindex
+            - redis
+            - postgresql
+            - jira
+            - xray
+            - gherkin
+            - oauth
+            - oidc
+            - protobuf
+            - sftp
+            - ssh
+            - packer
+            - github actions
+            - gitlab ci
+            - azure pipelines
         tools:
           terms:
+            - datadog
+            - cloudwatch
             - prometheus
             - grafana
             - github actions
-            - jenkins
-            - datadog
-            - cloudwatch
-            - argocd
-            - helm
-            - postgresql
-            - redis
+            - gitlab ci
+            - azure pipelines
+            - jira xray
+            - docker
+            - docker compose
+            - nomad
+            - bigquery
+            - packer
+            - terraform
+            - sns
+            - ec2
+            - iam
+            - mkdocs
         certifications:
-          terms:
-            - plc
-            - hvac
-            - electrical safety
+          terms: []
         domains:
           terms:
             - robotics
             - autonomy
             - validation
             - verification
-            - platform
-            - reliability
+            - quality engineering
+            - software quality
+            - hardware in the loop
             - release engineering
-            - field service
-            - installation
-            - maintenance
+            - devops
+            - infrastructure
+            - reliability
+            - commissioning
+            - site acceptance
+            - production systems
+            - distributed systems
+            - observability
+            - fleet operations
+            - industrial automation
+            - cloud infrastructure
+            - test automation
+            - systems integration
+            - state machines
+            - safety systems
+            - perception systems
+            - microservices
+            - ai
+            - machine learning
+            - computer vision
+            - rag
+
       signals:
         robotics:
-          weight: 10
+          weight: 12
           group: domain
           sentiment: positive
+          terms: [robotics, robotic systems, robot, fleet, autonomous systems]
+
         autonomy:
-          weight: 8
+          weight: 9
           group: domain
           sentiment: positive
-        hil:
+          terms: [autonomy, autonomous, navigation, motion control, perception]
+
+        hardware_in_the_loop:
+          weight: 13
+          group: domain
+          sentiment: positive
+          terms: [hardware in the loop, hil, real hardware, hardware runner]
+
+        validation:
           weight: 10
           group: domain
           sentiment: positive
-          terms: [hil, hardware in the loop]
-        validation:
-          weight: 8
-          group: domain
-          sentiment: positive
+          terms: [validation, system validation, integration validation, post installation validation, piv]
+
         verification:
-          weight: 8
+          weight: 9
           group: domain
           sentiment: positive
-        platform:
-          weight: 7
+          terms: [verification, requirement verification, verification engineering]
+
+        release_engineering:
+          weight: 12
           group: domain
           sentiment: positive
+          terms: [release engineering, release readiness, release gates, promotion, canary, stable rollout]
+
+        fleet_release:
+          weight: 13
+          group: domain
+          sentiment: positive
+          terms: [fleet, fleet scale, rollout, canary, deployment windows, production robots]
+
         reliability:
-          weight: 7
+          weight: 9
           group: domain
           sentiment: positive
-        ci_cd:
-          weight: 6
+          terms: [reliability, site reliability, production reliability, resilience, incident response]
+
+        observability:
+          weight: 9
           group: keyword
           sentiment: positive
-          terms: [ci/cd, github actions, jenkins]
-        customer_support:
+          terms: [observability, monitoring, metrics, dashboards, logging, cloudwatch, datadog, grafana, prometheus]
+
+        ci_cd:
+          weight: 9
+          group: keyword
+          sentiment: positive
+          terms: [ci cd, ci/cd, pipeline, pipelines, github actions, gitlab ci, azure pipelines, build health]
+
+        containers:
+          weight: 8
+          group: keyword
+          sentiment: positive
+          terms: [docker, container, containers, docker compose, containerized, image, images]
+
+        orchestration:
+          weight: 8
+          group: keyword
+          sentiment: positive
+          terms: [nomad, orchestration, workload orchestration, distributed deployment]
+
+        cloud_infrastructure:
+          weight: 8
+          group: keyword
+          sentiment: positive
+          terms: [aws, ec2, iam, sns, cloudwatch, terraform, packer, vpc, subnet, nat gateway]
+
+        test_automation:
           weight: 10
+          group: keyword
+          sentiment: positive
+          terms: [pytest, playwright, selenium, behave, automation framework, automated validation]
+
+        systems_integration:
+          weight: 8
+          group: keyword
+          sentiment: positive
+          terms: [graphql, grpc, rest api, integration testing, microservices, distributed systems]
+
+        data_analytics:
+          weight: 7
+          group: keyword
+          sentiment: positive
+          terms: [sql, bigquery, dashboards, metrics, analytics, trend analysis, reporting]
+
+        ai_ml:
+          weight: 5
+          group: keyword
+          sentiment: positive
+          terms: [ai, machine learning, computer vision, pytorch, rag, llamaindex, chromadb]
+
+        support_role:
+          weight: 20
           group: negative
           sentiment: negative
-          terms: [customer support, technical support, helpdesk]
-        operator:
-          weight: 15
+          terms: [customer support, technical support, helpdesk, call center, ticket queue]
+
+        operator_role:
+          weight: 22
           group: negative
           sentiment: negative
-        technician:
-          weight: 12
+          terms: [operator, operations associate, machine operator]
+
+        technician_role:
+          weight: 18
           group: negative
           sentiment: negative
+          terms: [technician, field technician, repair technician, maintenance technician]
+
+        manual_only_qa:
+          weight: 14
+          group: negative
+          sentiment: negative
+          terms: [manual testing only, qa analyst, test execution only, manual tester]
+
+        low_scope_it:
+          weight: 16
+          group: negative
+          sentiment: negative
+          terms: [desktop support, laptop deployment, printer support, end user support]
+
     scoring:
       prefilter:
-        - reason: Rejected due to junior/intern title signal
+        - reason: Rejected due to junior or internship title signal
           when:
             - field: title_normalized
               operator: contains_any
-              values: [intern, junior]
+              values: [intern, internship, junior, apprentice, new grad, graduate]
+
+        - reason: Rejected due to support or low-scope IT title
+          when:
+            - field: title_normalized
+              operator: contains_any
+              values: [helpdesk, support specialist, desktop support, technician, operator]
+
+        - reason: Rejected due to non-engineering customer support description
+          when:
+            - field: description
+              operator: contains_any
+              values: [high volume ticket queue, customer escalations, call center, end user support]
+
       categories:
         title:
           kind: rules
           default_score: 0
           rules:
-            - score: 30
-              reason: Title aligned with target role family
+            - score: 38
+              reason: Strong core alignment to robotics validation, release, or systems quality
               when:
                 - field: role_family
                   operator: in
-                  values: [platform, reliability, validation_verification, release_ci_cd, robotics_autonomy_test, field_service, installation]
-            - score: 10
-              reason: Title has partial overlap
+                  values:
+                    [
+                      robotics_validation,
+                      sdet_validation,
+                      release_quality,
+                      systems_quality,
+                      site_acceptance_commissioning
+                    ]
+
+            - score: 32
+              reason: Strong secondary alignment to platform or reliability
+              when:
+                - field: role_family
+                  operator: in
+                  values:
+                    [
+                      platform_devops,
+                      reliability_sre,
+                      production_platform
+                    ]
+
+            - score: 15
+              reason: Broader engineering overlap
               when:
                 - field: title_normalized
                   operator: contains_any
-                  values: [engineer, technician, specialist]
+                  values: [engineer, systems, platform, release, validation, reliability]
+
         seniority:
           kind: value_map
           field: seniority
@@ -159,33 +341,37 @@ profiles:
           map:
             staff: 10
             senior: 8
-            mid: 3
-            junior: -20
+            mid: 4
+            junior: -25
+
         location:
           kind: rules
           default_score: 0
           rules:
-            - score: 8
-              reason: Allowed country with remote flexibility
+            - score: 10
+              reason: Preferred region with remote flexibility
               when:
                 - field: location_country
                   operator: in
-                  values: [canada, united states, united kingdom]
+                  values: [canada, united states]
                 - field: work_mode
                   operator: equals
                   value: remote
-            - score: 5
+
+            - score: 7
               reason: Allowed country
               when:
                 - field: location_country
                   operator: in
-                  values: [canada, united states, united kingdom]
+                  values: [canada, united states]
+
             - score: -30
               reason: Location outside allowed countries
               when:
                 - field: location_country
                   operator: not_in
-                  values: [canada, united states, united kingdom]
+                  values: [canada, united states]
+
         salary:
           kind: rules
           default_score: 0
@@ -194,155 +380,365 @@ profiles:
               when:
                 - field: salary_min_cad
                   operator: missing
-            - score: -25
+
+            - score: -40
               reason: Salary below desired floor
               when:
                 - field: salary_min_cad
                   operator: lt
-                  value: 90000
-            - score: 4
-              reason: Salary above desired floor
+                  value: 110000
+
+            - score: 6
+              reason: Salary at or above desired floor
               when:
                 - field: salary_min_cad
                   operator: gte
-                  value: 90000
+                  value: 110000
+
         domain:
           kind: signal_group
           signal_group: domain
           default_score: 0
-          cap: 25
+          cap: 35
+
         keyword:
           kind: signal_group
           signal_group: keyword
           default_score: 0
           cap: 25
+
         negative:
           kind: signal_group
           signal_group: negative
           default_score: 0
-          floor: -35
+          floor: -40
+
       thresholds:
-        shortlisted: 80
-        review: 65
-        maybe: 50
+        shortlisted: 85
+        review: 68
+        maybe: 52
+
       llm:
         analyze_threshold: 35
-        deterministic_weight: 0.6
-        llm_weight: 0.4
+        deterministic_weight: 0.65
+        llm_weight: 0.35
+
     llm:
       extraction_enabled: true
       evaluation_enabled: true
-      extraction_guidance: Extract reusable job facets that would help profile-driven scoring across professions.
-      evaluation_guidance: Judge fit against the active profile, not just title similarity.
+      extraction_guidance: >
+        Extract reusable job facets with emphasis on robotics systems, validation rigor,
+        HIL, release engineering, cloud platform work, CI/CD ownership, observability,
+        distributed systems, and commissioning readiness.
+      evaluation_guidance: >
+        Judge fit against the active profile as a robotics validation, release, and platform-oriented engineer.
+        Strongly reward jobs involving system ownership, real production environments, hardware-software integration,
+        CI/CD, cloud observability, and data-backed engineering decisions. Penalize generic support, technician,
+        or manual-only QA roles.
+
     search:
       providers: [ashby, lever, greenhouse]
-      locations: [Toronto, Remote Canada, Remote United States]
+      locations:
+        - Toronto
+        - Ontario
+        - Vancouver
+        - Montreal
+        - Canada
+        - Remote Canada
+
     defaults:
       role_family: general
       seniority: mid
       work_mode: ""
       location_country: ""
 
-  software_platform:
+  robotics_platform_validation:
     extends: [base_framework]
-    normalization:
-      role_taxonomy:
-        - value: robotics_autonomy_test
-          variants: [qa engineer, validation engineer, autonomy test engineer]
-          keywords: [robotics, autonomy, ros2, sensors, hil]
-        - value: reliability
-          variants: [site reliability engineer, reliability engineer, sre, production engineer]
-          keywords: [site reliability, observability, incident response, datadog, cloudwatch, prometheus, grafana]
-        - value: validation_verification
-          variants: [systems test engineer, verification engineer, quality assurance engineer, software development engineer in test]
-          keywords: [systems test, validation, verification, quality assurance, test automation, pytest, selenium]
-        - value: platform
-          variants: [platform engineer, devops engineer, infrastructure engineer, cloud engineer]
-          keywords: [platform, devops, infrastructure, aws, docker, kubernetes, terraform, helm, argocd, redis, postgresql]
-        - value: release_ci_cd
-          variants: [release engineer, deployment engineer, build and release engineer, ci/cd engineer]
-          keywords: [release engineering, ci/cd, github actions, jenkins, deployment]
-    search:
-      query_terms:
-        - platform engineer
-        - site reliability engineer
-        - verification engineer
-        - release engineer
-      locations:
-        - Toronto
-        - Mississauga
-        - Vancouver
-        - Canada
-        - Remote
-        - Boston
-        - Miami
-        - San Francisco
-        - Remote United States
-    defaults:
-      role_family: platform
 
-  field_service:
-    extends: [base_framework]
     normalization:
-      title_replacements:
-        mech: mechanical
       role_taxonomy:
-        - value: field_service
-          variants: [field service technician, service technician, maintenance technician]
-          keywords: [field service, preventive maintenance, troubleshooting, repair, commissioning]
-        - value: installation
-          variants: [installation technician, service installer]
-          keywords: [installation, site visit, commissioning, mechanical, electrical]
+        - value: robotics_validation
+          variants:
+            [
+              robotics qa engineer,
+              robotics validation engineer,
+              robotics test engineer,
+              systems validation engineer,
+              autonomy validation engineer,
+              robotics software qa engineer,
+              robotics integration engineer
+            ]
+          keywords:
+            [
+              robotics,
+              autonomy,
+              validation,
+              verification,
+              perception,
+              motion control,
+              state machine,
+              safety,
+              hardware in the loop,
+              hil,
+              bring up,
+              piv,
+              commissioning
+            ]
+
+        - value: sdet_validation
+          variants:
+            [
+              software development engineer in test,
+              sdet,
+              test automation engineer,
+              systems test engineer,
+              software qa engineer,
+              quality assurance engineer,
+              verification engineer
+            ]
+          keywords:
+            [
+              pytest,
+              playwright,
+              selenium,
+              automation,
+              test framework,
+              validation,
+              regression,
+              integration testing,
+              graphql,
+              grpc,
+              rest api,
+              hardware in the loop
+            ]
+
+        - value: release_quality
+          variants:
+            [
+              release engineer,
+              build and release engineer,
+              deployment engineer,
+              release quality engineer,
+              testops engineer,
+              qa operations engineer
+            ]
+          keywords:
+            [
+              release engineering,
+              release gates,
+              canary,
+              production promotion,
+              build health,
+              rollout,
+              artifact validation,
+              change control,
+              fleet
+            ]
+
+        - value: platform_devops
+          variants:
+            [
+              platform engineer,
+              devops engineer,
+              infrastructure engineer,
+              cloud engineer,
+              test infrastructure engineer,
+              quality infrastructure engineer
+            ]
+          keywords:
+            [
+              platform,
+              infrastructure,
+              devops,
+              terraform,
+              aws,
+              docker,
+              nomad,
+              ec2,
+              iam,
+              cloudwatch,
+              sns,
+              packer,
+              ci cd
+            ]
+
+        - value: reliability_sre
+          variants:
+            [
+              site reliability engineer,
+              reliability engineer,
+              systems reliability engineer,
+              production reliability engineer,
+              production engineer,
+              runtime engineer
+            ]
+          keywords:
+            [
+              reliability,
+              site reliability,
+              observability,
+              incident response,
+              metrics,
+              monitoring,
+              cloudwatch,
+              datadog,
+              grafana,
+              prometheus,
+              production systems
+            ]
+
+        - value: site_acceptance_commissioning
+          variants:
+            [
+              site acceptance engineer,
+              commissioning engineer,
+              field validation engineer,
+              deployment validation engineer,
+              systems integration engineer
+            ]
+          keywords:
+            [
+              commissioning,
+              site acceptance,
+              field validation,
+              bring up,
+              post installation validation,
+              piv,
+              deployment readiness,
+              hardware software integration
+            ]
+
+        - value: systems_quality
+          variants:
+            [
+              systems quality engineer,
+              reliability and quality engineer,
+              integration quality engineer,
+              production systems engineer
+            ]
+          keywords:
+            [
+              systems quality,
+              integration,
+              validation strategy,
+              requirement traceability,
+              distributed systems,
+              quality engineering,
+              release readiness,
+              observability
+            ]
+
     scoring:
       categories:
+        trajectory_fit:
+          kind: rules
+          default_score: 0
+          rules:
+            - score: 14
+              reason: High ownership engineering role with systems depth
+              when:
+                - field: description
+                  operator: contains_any
+                  values:
+                    [
+                      system ownership,
+                      platform ownership,
+                      release ownership,
+                      production systems,
+                      distributed systems,
+                      cloud infrastructure,
+                      observability,
+                      automation framework,
+                      validation strategy
+                    ]
+
+            - score: 8
+              reason: Solid technical trajectory match
+              when:
+                - field: description
+                  operator: contains_any
+                  values:
+                    [
+                      ci cd,
+                      deployment,
+                      reliability,
+                      infrastructure,
+                      robotics,
+                      integration testing,
+                      hardware in the loop
+                    ]
+
         title:
           kind: rules
           default_score: 0
           rules:
-            - score: 28
-              reason: Title aligned with field-service profile
+            - score: 42
+              reason: Direct match to core robotics validation and release profile
               when:
                 - field: role_family
                   operator: in
-                  values: [field_service, installation]
+                  values:
+                    [
+                      robotics_validation,
+                      sdet_validation,
+                      release_quality,
+                      site_acceptance_commissioning,
+                      systems_quality
+                    ]
+
+            - score: 30
+              reason: Strong adjacent platform and reliability fit
+              when:
+                - field: role_family
+                  operator: in
+                  values:
+                    [
+                      platform_devops,
+                      reliability_sre
+                    ]
+
             - score: 8
-              reason: Title has service overlap
+              reason: Partial engineering overlap
               when:
                 - field: title_normalized
                   operator: contains_any
-                  values: [service, installation, maintenance]
-        salary:
-          kind: rules
-          default_score: 0
-          rules:
-            - score: 0
-              when:
-                - field: salary_min_cad
-                  operator: missing
-            - score: -15
-              reason: Salary below desired field threshold
-              when:
-                - field: salary_min_cad
-                  operator: lt
-                  value: 65000
-            - score: 4
-              reason: Salary at or above desired field threshold
-              when:
-                - field: salary_min_cad
-                  operator: gte
-                  value: 65000
+                  values: [engineer, qa, validation, release, platform, reliability]
+
       thresholds:
-        shortlisted: 70
-        review: 55
-        maybe: 40
+        shortlisted: 88
+        review: 70
+        maybe: 55
+
     search:
       query_terms:
-        - field service technician
-        - installation technician
-        - maintenance technician
+        - "robotics validation engineer"
+        - "robotics qa engineer"
+        - "systems validation engineer"
+        - "autonomy test engineer"
+        - "software development engineer in test"
+        - "SDET robotics"
+        - "release engineer"
+        - "testops engineer"
+        - "qa operations engineer"
+        - "platform engineer"
+        - "quality infrastructure engineer"
+        - "site reliability engineer"
+        - "production engineer"
+        - "systems quality engineer"
+        - "commissioning engineer"
+        - "site acceptance engineer"
+        - "integration engineer robotics"
       locations:
         - Toronto
+        - Ontario
+        - Vancouver
         - Canada
-        - United States
+        - Remote Canada
+        - New York
+        - Boston
+        - Seattle
+        - San Francisco
+
+
     defaults:
-      role_family: field_service
+      role_family: robotics_validation

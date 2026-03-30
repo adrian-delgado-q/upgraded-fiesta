@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 from typing import Any
 
@@ -12,6 +14,9 @@ from shared.models import NormalizedJob
 
 from .extraction import ExtractionArtifacts
 from .profiles import ProfileConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class LLMExtractionResponse(BaseModel):
@@ -39,7 +44,8 @@ class LLMClient:
         self.config = config
         self.profile = profile
         self.api_key = (config.api_key or os.environ.get(config.api_key_env, "")).strip()
-        self.client = httpx.Client(timeout=config.timeout_seconds, headers={"User-Agent": "upgraded-fiesta/0.1"})
+        self.timeout = httpx.Timeout(config.timeout_seconds)
+        self.client = httpx.Client(timeout=self.timeout, headers={"User-Agent": "upgraded-fiesta/0.1"})
 
     @property
     def model_name(self) -> str:
@@ -64,8 +70,48 @@ class LLMClient:
                 return self._analyze_local(job, artifacts, deterministic_score)
         return self._analyze_local(job, artifacts, deterministic_score)
 
+    async def analyze_async(
+        self,
+        job: NormalizedJob,
+        artifacts: ExtractionArtifacts,
+        deterministic_score: float,
+    ) -> dict[str, dict[str, Any]]:
+        if self.uses_remote_api:
+            try:
+                return await self._analyze_remote_async(job, artifacts, deterministic_score)
+            except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError):
+                logger.warning(
+                    "Falling back to local LLM analysis company=%s title=%s",
+                    job.company,
+                    job.title_normalized or job.title_raw,
+                )
+                return self._analyze_local(job, artifacts, deterministic_score)
+        return self._analyze_local(job, artifacts, deterministic_score)
+
     def _chat_json(self, prompt: str) -> dict[str, Any]:
         response = self.client.post(
+            f"{self.config.base_url.rstrip('/')}/chat/completions",
+            json={
+                "model": self.config.model,
+                "messages": [
+                    {"role": "system", "content": "Return only valid JSON that matches the requested schema."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.1,
+                "response_format": {"type": "json_object"},
+            },
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+        content = payload["choices"][0]["message"]["content"]
+        return json.loads(content)
+
+    async def _chat_json_async(self, client: httpx.AsyncClient, prompt: str) -> dict[str, Any]:
+        response = await client.post(
             f"{self.config.base_url.rstrip('/')}/chat/completions",
             json={
                 "model": self.config.model,
@@ -92,6 +138,53 @@ class LLMClient:
         extraction = LLMExtractionResponse.model_validate(self._chat_json(extraction_prompt))
         evaluation = LLMEvaluationResponse.model_validate(self._chat_json(evaluation_prompt))
         return {"extraction": extraction.model_dump(), "evaluation": evaluation.model_dump()}
+
+    async def _analyze_remote_async(
+        self,
+        job: NormalizedJob,
+        artifacts: ExtractionArtifacts,
+        deterministic_score: float,
+    ) -> dict[str, dict[str, Any]]:
+        extraction_prompt = self._build_extraction_prompt(job, artifacts)
+        evaluation_prompt = self._build_evaluation_prompt(job, artifacts, deterministic_score)
+        async with httpx.AsyncClient(timeout=self.timeout, headers={"User-Agent": "upgraded-fiesta/0.1"}) as client:
+            extraction_payload = await self._chat_json_with_retry(client, prompt=extraction_prompt, job=job, stage="extraction")
+            evaluation_payload = await self._chat_json_with_retry(client, prompt=evaluation_prompt, job=job, stage="evaluation")
+        extraction = LLMExtractionResponse.model_validate(extraction_payload)
+        evaluation = LLMEvaluationResponse.model_validate(evaluation_payload)
+        return {"extraction": extraction.model_dump(), "evaluation": evaluation.model_dump()}
+
+    async def _chat_json_with_retry(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        prompt: str,
+        job: NormalizedJob,
+        stage: str,
+    ) -> dict[str, Any]:
+        attempts = 2
+        for attempt in range(1, attempts + 1):
+            try:
+                return await self._chat_json_async(client, prompt)
+            except httpx.ReadTimeout:
+                logger.warning(
+                    "DeepSeek read timeout company=%s title=%s stage=%s attempt=%s/%s",
+                    job.company,
+                    job.title_normalized or job.title_raw,
+                    stage,
+                    attempt,
+                    attempts,
+                )
+                if attempt == attempts:
+                    logger.warning(
+                        "DeepSeek fallback to local analysis after timeout company=%s title=%s stage=%s",
+                        job.company,
+                        job.title_normalized or job.title_raw,
+                        stage,
+                    )
+                    raise
+                await asyncio.sleep(0)
+        raise RuntimeError("unreachable")
 
     def _analyze_local(self, job: NormalizedJob, artifacts: ExtractionArtifacts, deterministic_score: float) -> dict[str, dict[str, Any]]:
         vocabularies = artifacts.normalized_facets

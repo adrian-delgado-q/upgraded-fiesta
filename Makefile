@@ -1,5 +1,5 @@
 PYTHON ?= python3
-PROFILE ?= software_platform
+PROFILE ?= robotics_platform_validation
 TITLE ?= Senior Platform Engineer
 COMPANY ?= Debug Company
 LOCATION ?= Toronto, ON, Canada

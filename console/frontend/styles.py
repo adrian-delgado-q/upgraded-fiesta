@@ -83,6 +83,11 @@ SHARED_CSS = """
         color: var(--accent);
     }
 
+    [data-testid="stButton"] button p {
+        font-size: 0.92rem;
+        line-height: 1;
+    }
+
     [data-testid="stHorizontalBlock"] {
         gap: 0.7rem;
     }
@@ -100,6 +105,80 @@ SHARED_CSS = """
         border-radius: 18px;
         padding: 0.45rem 0.85rem;
         margin-bottom: 1rem;
+    }
+
+    .console-table-header-cell {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+        margin: 0.1rem 0 0.3rem;
+        padding: 0 0.2rem;
+    }
+
+    .console-table-cell {
+        min-height: 4.2rem;
+        display: flex;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid rgba(31, 43, 61, 0.08);
+        border-radius: 16px;
+        padding: 0.75rem 0.85rem;
+        margin-bottom: 0.55rem;
+        font-size: 0.9rem;
+        line-height: 1.35;
+    }
+
+    .console-table-cell.selected {
+        border-color: rgba(182, 92, 47, 0.35);
+        background: rgba(255, 249, 243, 0.98);
+        box-shadow: inset 3px 0 0 var(--accent);
+    }
+
+    .console-table-role {
+        display: block;
+    }
+
+    .console-table-role-title {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 1rem;
+        font-weight: 700;
+        line-height: 1.3;
+        margin-bottom: 0.24rem;
+    }
+
+    .console-table-role-subtitle,
+    .console-table-meta {
+        color: var(--muted);
+    }
+
+    .console-inline-flag {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 0.14rem 0.45rem;
+        background: rgba(182, 92, 47, 0.12);
+        color: var(--accent);
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .console-table-comp {
+        color: var(--success);
+        font-weight: 700;
+    }
+
+    .console-table-score {
+        justify-content: center;
+        font-weight: 800;
+        color: var(--accent);
+        background: rgba(242, 226, 215, 0.7);
+        border-color: rgba(182, 92, 47, 0.16);
     }
 
     .console-card {
