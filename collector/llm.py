@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from hashlib import sha256
 import json
 import logging
 import os
+import re
 from typing import Any
 
 import httpx
@@ -39,7 +41,14 @@ class LLMEvaluationResponse(BaseModel):
     category_adjustments: dict[str, float] = Field(default_factory=dict)
 
 
+class LLMAnalysisResponse(BaseModel):
+    extraction: LLMExtractionResponse = Field(default_factory=LLMExtractionResponse)
+    evaluation: LLMEvaluationResponse = Field(default_factory=LLMEvaluationResponse)
+
+
 class LLMClient:
+    PROMPT_SHAPING_VERSION = "compact-v1"
+
     def __init__(self, config: LLMSettings, profile: ProfileConfig) -> None:
         self.config = config
         self.profile = profile
@@ -62,13 +71,33 @@ class LLMClient:
     def should_analyze(self, deterministic_score: float) -> bool:
         return self.config.enabled and deterministic_score >= float(self.profile.scoring.llm.analyze_threshold)
 
+    def build_cache_key(self, content_hash: str) -> str:
+        raw_str = "|".join(
+            [
+                content_hash,
+                self.profile.profile_name,
+                self.config.model,
+                self.config.prompt_version,
+                self.PROMPT_SHAPING_VERSION,
+            ]
+        )
+        return sha256(raw_str.encode("utf-8")).hexdigest()
+
     def analyze(self, job: NormalizedJob, artifacts: ExtractionArtifacts, deterministic_score: float) -> dict[str, dict[str, Any]]:
+        return self.analyze_with_source(job, artifacts, deterministic_score)[0]
+
+    def analyze_with_source(
+        self,
+        job: NormalizedJob,
+        artifacts: ExtractionArtifacts,
+        deterministic_score: float,
+    ) -> tuple[dict[str, dict[str, Any]], str]:
         if self.uses_remote_api:
             try:
-                return self._analyze_remote(job, artifacts, deterministic_score)
+                return self._analyze_remote(job, artifacts, deterministic_score), "remote"
             except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError):
-                return self._analyze_local(job, artifacts, deterministic_score)
-        return self._analyze_local(job, artifacts, deterministic_score)
+                return self._analyze_local(job, artifacts, deterministic_score), "local"
+        return self._analyze_local(job, artifacts, deterministic_score), "local"
 
     async def analyze_async(
         self,
@@ -76,17 +105,25 @@ class LLMClient:
         artifacts: ExtractionArtifacts,
         deterministic_score: float,
     ) -> dict[str, dict[str, Any]]:
+        return (await self.analyze_with_source_async(job, artifacts, deterministic_score))[0]
+
+    async def analyze_with_source_async(
+        self,
+        job: NormalizedJob,
+        artifacts: ExtractionArtifacts,
+        deterministic_score: float,
+    ) -> tuple[dict[str, dict[str, Any]], str]:
         if self.uses_remote_api:
             try:
-                return await self._analyze_remote_async(job, artifacts, deterministic_score)
+                return await self._analyze_remote_async(job, artifacts, deterministic_score), "remote"
             except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError):
                 logger.warning(
                     "Falling back to local LLM analysis company=%s title=%s",
                     job.company,
                     job.title_normalized or job.title_raw,
                 )
-                return self._analyze_local(job, artifacts, deterministic_score)
-        return self._analyze_local(job, artifacts, deterministic_score)
+                return self._analyze_local(job, artifacts, deterministic_score), "local"
+        return self._analyze_local(job, artifacts, deterministic_score), "local"
 
     def _chat_json(self, prompt: str) -> dict[str, Any]:
         response = self.client.post(
@@ -133,11 +170,9 @@ class LLMClient:
         return json.loads(content)
 
     def _analyze_remote(self, job: NormalizedJob, artifacts: ExtractionArtifacts, deterministic_score: float) -> dict[str, dict[str, Any]]:
-        extraction_prompt = self._build_extraction_prompt(job, artifacts)
-        evaluation_prompt = self._build_evaluation_prompt(job, artifacts, deterministic_score)
-        extraction = LLMExtractionResponse.model_validate(self._chat_json(extraction_prompt))
-        evaluation = LLMEvaluationResponse.model_validate(self._chat_json(evaluation_prompt))
-        return {"extraction": extraction.model_dump(), "evaluation": evaluation.model_dump()}
+        analysis_prompt = self._build_analysis_prompt(job, artifacts, deterministic_score)
+        analysis = LLMAnalysisResponse.model_validate(self._chat_json(analysis_prompt))
+        return analysis.model_dump()
 
     async def _analyze_remote_async(
         self,
@@ -145,14 +180,11 @@ class LLMClient:
         artifacts: ExtractionArtifacts,
         deterministic_score: float,
     ) -> dict[str, dict[str, Any]]:
-        extraction_prompt = self._build_extraction_prompt(job, artifacts)
-        evaluation_prompt = self._build_evaluation_prompt(job, artifacts, deterministic_score)
+        analysis_prompt = self._build_analysis_prompt(job, artifacts, deterministic_score)
         async with httpx.AsyncClient(timeout=self.timeout, headers={"User-Agent": "upgraded-fiesta/0.1"}) as client:
-            extraction_payload = await self._chat_json_with_retry(client, prompt=extraction_prompt, job=job, stage="extraction")
-            evaluation_payload = await self._chat_json_with_retry(client, prompt=evaluation_prompt, job=job, stage="evaluation")
-        extraction = LLMExtractionResponse.model_validate(extraction_payload)
-        evaluation = LLMEvaluationResponse.model_validate(evaluation_payload)
-        return {"extraction": extraction.model_dump(), "evaluation": evaluation.model_dump()}
+            analysis_payload = await self._chat_json_with_retry(client, prompt=analysis_prompt, job=job, stage="analysis")
+        analysis = LLMAnalysisResponse.model_validate(analysis_payload)
+        return analysis.model_dump()
 
     async def _chat_json_with_retry(
         self,
@@ -168,7 +200,7 @@ class LLMClient:
                 return await self._chat_json_async(client, prompt)
             except httpx.ReadTimeout:
                 logger.warning(
-                    "DeepSeek read timeout company=%s title=%s stage=%s attempt=%s/%s",
+                    "LLM read timeout company=%s title=%s stage=%s attempt=%s/%s",
                     job.company,
                     job.title_normalized or job.title_raw,
                     stage,
@@ -177,7 +209,7 @@ class LLMClient:
                 )
                 if attempt == attempts:
                     logger.warning(
-                        "DeepSeek fallback to local analysis after timeout company=%s title=%s stage=%s",
+                        "LLM fallback to local analysis after timeout company=%s title=%s stage=%s",
                         job.company,
                         job.title_normalized or job.title_raw,
                         stage,
@@ -228,35 +260,43 @@ class LLMClient:
         )
         return {"extraction": extraction.model_dump(), "evaluation": evaluation.model_dump()}
 
-    def _build_extraction_prompt(self, job: NormalizedJob, artifacts: ExtractionArtifacts) -> str:
+    def _build_analysis_prompt(self, job: NormalizedJob, artifacts: ExtractionArtifacts, deterministic_score: float) -> str:
         vocabulary_names = ", ".join(sorted(self.profile.extraction.vocabularies)) or "skills, tools, certifications"
+        compact_payload = {
+            "profile": self.profile.profile_name,
+            "title": job.title_normalized or job.title_raw,
+            "company": job.company,
+            "location": job.location_raw or "",
+            "work_mode": job.work_mode or "",
+            "role_family": job.role_family or "",
+            "seniority": job.seniority or "",
+            "deterministic_score": deterministic_score,
+            "deterministic_facets": artifacts.normalized_facets,
+            "signal_groups": artifacts.profile_signals.get("groups", {}),
+            "description_excerpt": self._sanitize_description(job.description_text),
+        }
         return (
-            "Extract structured facts from this job posting. "
-            "Return JSON with keys: normalized_title, role_family, seniority, work_mode, "
+            "Analyze this job for the active profile and return one JSON object with keys "
+            "extraction and evaluation.\n"
+            "extraction must contain: normalized_title, role_family, seniority, work_mode, "
             "location_interpretation, compensation, facets, evidence.\n"
+            "evaluation must contain: fit_score, risk_penalty, recommendation, reasons, concerns, "
+            "category_adjustments.\n"
             "Compensation must include salary_min, salary_max, salary_currency, salary_period, salary_is_explicit.\n"
             f"Profile: {self.profile.profile_name}\n"
             f"Vocabulary buckets: {vocabulary_names}\n"
-            f"Profile guidance: {self.profile.llm.extraction_guidance}\n\n"
-            f"Title: {job.title_normalized or job.title_raw}\n"
-            f"Company: {job.company}\n"
-            f"Location: {job.location_raw or ''}\n"
-            f"Work mode: {job.work_mode or ''}\n"
-            f"Role family: {job.role_family or ''}\n"
-            f"Seniority: {job.seniority or ''}\n"
-            f"Deterministic facets: {json.dumps(artifacts.normalized_facets, ensure_ascii=True)}\n"
-            f"Description:\n{job.description_text}"
+            f"Extraction guidance: {self._compact_text(self.profile.llm.extraction_guidance)}\n"
+            f"Evaluation guidance: {self._compact_text(self.profile.llm.evaluation_guidance)}\n"
+            f"Context: {json.dumps(compact_payload, ensure_ascii=True, separators=(',', ':'))}"
         )
 
-    def _build_evaluation_prompt(self, job: NormalizedJob, artifacts: ExtractionArtifacts, deterministic_score: float) -> str:
-        return (
-            "Evaluate candidate fit for the active profile. "
-            "Return JSON with keys: fit_score, risk_penalty, recommendation, reasons, concerns, category_adjustments.\n"
-            f"Profile: {self.profile.profile_name}\n"
-            f"Profile guidance: {self.profile.llm.evaluation_guidance}\n"
-            f"Deterministic score: {deterministic_score}\n"
-            f"Signal groups: {json.dumps(artifacts.profile_signals.get('groups', {}), ensure_ascii=True)}\n"
-            f"Facets: {json.dumps(artifacts.normalized_facets, ensure_ascii=True)}\n"
-            f"Title: {job.title_normalized or job.title_raw}\n"
-            f"Description:\n{job.description_text}"
-        )
+    def _compact_text(self, value: str) -> str:
+        return re.sub(r"\s+", " ", value or "").strip()
+
+    def _sanitize_description(self, description: str) -> str:
+        compact = self._compact_text(description)
+        max_chars = max(1, int(self.config.max_description_chars))
+        if len(compact) <= max_chars:
+            return compact
+        truncated = compact[: max_chars - 1].rsplit(" ", 1)[0].strip()
+        return f"{truncated}..."

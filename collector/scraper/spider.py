@@ -29,7 +29,7 @@ def build_run_config(args: argparse.Namespace, profile: ProfileConfig, defaults:
     return ScrapeRunConfig(
         query_terms=list(getattr(args, "terms", None) or profile.search.query_terms),
         enabled_providers=providers,
-        locations=list(getattr(args, "locations", None) or profile.search.locations),
+        locations=list(getattr(args, "locations", None) or []),
         max_pages=int(getattr(args, "max_pages", None) or defaults.max_pages),
         max_pages_per_company=int(getattr(args, "max_pages_per_company", None) or defaults.max_pages_per_company),
         max_depth=int(getattr(args, "max_depth", None) or defaults.max_depth),

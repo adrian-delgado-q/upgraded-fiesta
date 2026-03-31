@@ -69,26 +69,27 @@ class TaxonomyRule(ProfileModel):
         return _clean_string_list(value)
 
 
-class LocationConfig(ProfileModel):
-    allowed_countries: list[str] = Field(default_factory=list)
-    preferred_regions: dict[str, list[str]] = Field(default_factory=dict)
-    country_aliases: dict[str, str] = Field(default_factory=dict)
-    search_locations: list[str] = Field(default_factory=list)
+class TargetLocationCountry(ProfileModel):
+    aliases: list[str] = Field(default_factory=list)
+    regions: list[str] = Field(default_factory=list)
 
-    @field_validator("allowed_countries", "search_locations", mode="before")
+    @field_validator("aliases", "regions", mode="before")
     @classmethod
     def validate_lists(cls, value: Any) -> list[str]:
         return _clean_string_list(value)
 
-    @field_validator("country_aliases", mode="before")
-    @classmethod
-    def validate_mapping(cls, value: Any) -> dict[str, str]:
-        return _clean_string_mapping(value)
 
-    @field_validator("preferred_regions", mode="before")
+class TargetLocationsConfig(ProfileModel):
+    countries: dict[str, TargetLocationCountry] = Field(default_factory=dict)
+
+    @field_validator("countries", mode="before")
     @classmethod
-    def validate_nested_mapping(cls, value: Any) -> dict[str, list[str]]:
-        return _clean_nested_string_mapping(value)
+    def validate_countries(cls, value: Any) -> dict[str, Any]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("must be a mapping of countries")
+        return {str(key).strip(): item for key, item in value.items() if str(key).strip()}
 
 
 class NormalizationConfig(ProfileModel):
@@ -96,7 +97,6 @@ class NormalizationConfig(ProfileModel):
     role_taxonomy: list[TaxonomyRule] = Field(default_factory=list)
     seniority_taxonomy: list[TaxonomyRule] = Field(default_factory=list)
     work_mode_taxonomy: list[TaxonomyRule] = Field(default_factory=list)
-    locations: LocationConfig = Field(default_factory=LocationConfig)
 
     @field_validator("title_replacements", mode="before")
     @classmethod
@@ -220,9 +220,8 @@ class LLMProfileConfig(ProfileModel):
 class SearchConfig(ProfileModel):
     query_terms: list[str] = Field(default_factory=list)
     providers: list[str] = Field(default_factory=list)
-    locations: list[str] = Field(default_factory=list)
 
-    @field_validator("query_terms", "providers", "locations", mode="before")
+    @field_validator("query_terms", "providers", mode="before")
     @classmethod
     def validate_lists(cls, value: Any) -> list[str]:
         return _clean_string_list(value)
@@ -238,6 +237,7 @@ class DefaultsConfig(ProfileModel):
 class ProfileConfig(ProfileModel):
     profile_name: str = "default"
     extends: list[str] = Field(default_factory=list)
+    target_locations: TargetLocationsConfig = Field(default_factory=TargetLocationsConfig)
     normalization: NormalizationConfig = Field(default_factory=NormalizationConfig)
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
@@ -273,13 +273,15 @@ def _attach_profile_name(name: str, profile: ProfileConfig) -> ProfileConfig:
     return profile.model_copy(update={"profile_name": name})
 
 
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any], path: tuple[str, ...] = ()) -> dict[str, Any]:
     merged = deepcopy(base)
     for key, value in override.items():
         if key not in merged:
             merged[key] = deepcopy(value)
+        elif path == ("target_locations",) and key == "countries" and isinstance(value, dict):
+            merged[key] = deepcopy(value)
         elif isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = _deep_merge(merged[key], value)
+            merged[key] = _deep_merge(merged[key], value, path=(*path, str(key)))
         else:
             merged[key] = deepcopy(value)
     return merged

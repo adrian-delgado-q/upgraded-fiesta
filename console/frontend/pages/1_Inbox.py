@@ -12,6 +12,8 @@ from console.frontend.styles import apply_shared_styles
 client = ApiClient(get_api_base_url())
 apply_shared_styles()
 PENDING_ACTION_KEY = "inbox_pending_action"
+PAGE_KEY = "inbox_page"
+FILTER_SIGNATURE_KEY = "inbox_filter_signature"
 
 
 pending_action = st.session_state.pop(PENDING_ACTION_KEY, None)
@@ -40,21 +42,57 @@ with st.sidebar:
     source = st.selectbox("Source", ["", "ashby", "lever", "greenhouse"], label_visibility="collapsed")
     st.caption("Role family")
     role_family = st.text_input("Role family", label_visibility="collapsed")
-    st.caption("Max items")
-    max_items = st.number_input("Max items", min_value=1, max_value=500, value=100, step=25, label_visibility="collapsed")
+    st.caption("Page size")
+    page_size = st.number_input("Page size", min_value=25, max_value=500, value=100, step=25, label_visibility="collapsed")
     salary_known = st.checkbox("Salary known")
 
-jobs = client.get(
+filter_signature = (triage_status, source, role_family.strip(), salary_known, int(page_size))
+if st.session_state.get(FILTER_SIGNATURE_KEY) != filter_signature:
+    st.session_state[FILTER_SIGNATURE_KEY] = filter_signature
+    st.session_state[PAGE_KEY] = 0
+
+current_page = int(st.session_state.get(PAGE_KEY, 0))
+response = client.get(
     "/jobs",
     {
         "triage_status": triage_status,
         "source": source,
         "role_family": role_family,
         "salary_known": salary_known,
-        "limit": int(max_items),
+        "limit": int(page_size),
+        "offset": current_page * int(page_size),
     },
 )
-st.caption(f"Showing up to {int(max_items)} matching jobs")
+jobs = response["items"]
+total_jobs = int(response["total"])
+page_size_value = int(page_size)
+total_pages = max(1, (total_jobs + page_size_value - 1) // page_size_value)
+if total_jobs and current_page >= total_pages:
+    st.session_state[PAGE_KEY] = total_pages - 1
+    st.rerun()
+
+page_start = (current_page * page_size_value) + 1 if total_jobs else 0
+page_end = min((current_page + 1) * page_size_value, total_jobs)
+st.caption(f"Showing {page_start}-{page_end} of {total_jobs} matching unprocessed jobs")
+
+pager_cols = st.columns([1, 1.5, 1, 3])
+prev_disabled = current_page <= 0
+next_disabled = current_page >= (total_pages - 1) or total_jobs == 0
+if pager_cols[0].button("Previous", use_container_width=True, disabled=prev_disabled):
+    st.session_state[PAGE_KEY] = max(0, current_page - 1)
+    st.rerun()
+pager_cols[1].markdown(
+    f"<div class='console-toolbar'><strong>Page {current_page + 1}</strong> of {total_pages}</div>",
+    unsafe_allow_html=True,
+)
+if pager_cols[2].button("Next", use_container_width=True, disabled=next_disabled):
+    st.session_state[PAGE_KEY] = min(total_pages - 1, current_page + 1)
+    st.rerun()
+pager_cols[3].markdown(
+    f"<div class='console-toolbar'><strong>{len(jobs)}</strong> jobs on this page</div>",
+    unsafe_allow_html=True,
+)
+
 table_container = st.container()
 detail_container = None
 if st.session_state.get(SELECTION_KEY):

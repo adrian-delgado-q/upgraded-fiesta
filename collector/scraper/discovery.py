@@ -206,12 +206,16 @@ def build_location_overlays(profile: ProfileConfig) -> list[str]:
             seen.add(lowered)
             overlays.append(cleaned)
 
-    for country in profile.normalization.locations.allowed_countries:
-        add(profile.normalization.locations.country_aliases.get(country, country))
-    for location in [*profile.normalization.locations.search_locations, *profile.search.locations]:
-        add(location)
-    for country in profile.normalization.locations.allowed_countries:
-        add(f"Remote {profile.normalization.locations.country_aliases.get(country, country)}")
+    for country_key, config in profile.target_locations.countries.items():
+        country_name = country_key.replace("_", " ").strip().title()
+        aliases = [alias for alias in config.aliases if alias.strip()]
+        display_name = next(
+            (alias for alias in aliases if alias.strip().lower() == country_name.lower()),
+            country_name,
+        )
+        for location in [*config.regions, display_name, *aliases]:
+            add(location)
+        add(f"Remote {display_name}")
     return overlays
 
 
@@ -221,7 +225,8 @@ def discover_candidates(run_config, providers: list[ATSProvider], profile: Profi
     if run_config.query_terms:
         if backend is None:
             raise ScrapeError("Search backend is required when query terms are provided.")
-        discovery = SearchDiscovery(providers, backend=backend, location_overlays=build_location_overlays(profile))
+        location_overlays = list(run_config.locations or build_location_overlays(profile))
+        discovery = SearchDiscovery(providers, backend=backend, location_overlays=location_overlays)
         search_results, report = discovery.discover(
             run_config.query_terms,
             max_results=run_config.search_results_per_query,

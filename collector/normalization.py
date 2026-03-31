@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 from hashlib import sha256
 from typing import Any
@@ -7,11 +8,85 @@ from typing import Any
 from .profiles import ProfileConfig, TaxonomyRule
 
 
+@dataclass(frozen=True, slots=True)
+class CompensationEstimate:
+    salary_min: float
+    salary_max: float
+    currency: str
+    period: str
+
+
 def normalize_title(title: str, profile: ProfileConfig) -> str:
     normalized_title = (title or "").lower().strip()
     for key, replacement in profile.normalization.title_replacements.items():
         normalized_title = re.sub(rf"\b{re.escape(key)}\b", replacement, normalized_title)
     return " ".join(normalized_title.split()).title()
+
+
+def infer_compensation(text: str | None) -> CompensationEstimate | None:
+    if not text:
+        return None
+    compact = re.sub(r"\s+", " ", text)
+    if not compact:
+        return None
+    pattern = re.compile(
+        r"(?P<context>.{0,120}?)"
+        r"(?P<currency_symbol>[$€£])\s*"
+        r"(?P<minimum>\d[\d,]*(?:\.\d+)?)\s*"
+        r"(?:-|to|–|—)\s*"
+        r"(?:(?P=currency_symbol)\s*)?"
+        r"(?P<maximum>\d[\d,]*(?:\.\d+)?)"
+        r"(?:\s*(?P<currency_code>usd|cad|eur|gbp))?"
+        r"(?P<suffix>.{0,120})",
+        flags=re.IGNORECASE,
+    )
+    money_terms = ("salary", "compensation", "pay", "base", "ote", "on-target earnings", "annual")
+    period_markers = {
+        "hour": "hourly",
+        "hourly": "hourly",
+        "hr": "hourly",
+        "month": "monthly",
+        "monthly": "monthly",
+        "week": "weekly",
+        "weekly": "weekly",
+        "year": "yearly",
+        "annual": "yearly",
+        "annually": "yearly",
+        "yearly": "yearly",
+        "per year": "yearly",
+    }
+    symbol_currency = {"$": "USD", "€": "EUR", "£": "GBP"}
+    best_match: CompensationEstimate | None = None
+    best_score = float("-inf")
+    for match in pattern.finditer(compact):
+        minimum = float(match.group("minimum").replace(",", ""))
+        maximum = float(match.group("maximum").replace(",", ""))
+        if minimum <= 0 or maximum < minimum:
+            continue
+        context = f"{match.group('context')} {match.group('suffix')}".lower()
+        score = 0.0
+        if any(term in context for term in money_terms):
+            score += 10.0
+        if "premium market" in context or "premium markets" in context:
+            score -= 5.0
+        if maximum >= 1000:
+            score += 2.0
+        currency = (match.group("currency_code") or "").upper() or symbol_currency.get(match.group("currency_symbol"), "USD")
+        period = "yearly"
+        for marker, normalized in period_markers.items():
+            if marker in context:
+                period = normalized
+                break
+        candidate = CompensationEstimate(
+            salary_min=minimum,
+            salary_max=maximum,
+            currency=currency,
+            period=period,
+        )
+        if score > best_score:
+            best_score = score
+            best_match = candidate
+    return best_match
 
 
 def _find_taxonomy_value(text: str, rules: list[TaxonomyRule], default: str) -> str:
@@ -38,21 +113,25 @@ def infer_work_mode(text: str, profile: ProfileConfig) -> str:
 
 
 def _normalize_country_token(value: str) -> str:
-    return re.sub(r"\s+", " ", (value or "").strip().lower())
+    return re.sub(r"\s+", " ", (value or "").strip().lower().replace("_", " "))
+
+
+def _country_display_name(country_key: str, aliases: list[str]) -> str:
+    preferred = country_key.replace("_", " ").strip().title()
+    for alias in aliases:
+        if _normalize_country_token(alias) == _normalize_country_token(preferred):
+            return alias.strip()
+    return preferred
 
 
 def get_country_aliases(profile: ProfileConfig) -> dict[str, str]:
     resolved: dict[str, str] = {}
-    for alias, canonical in profile.normalization.locations.country_aliases.items():
-        alias_key = _normalize_country_token(alias)
-        canonical_text = canonical.strip()
-        if alias_key and canonical_text:
-            resolved[alias_key] = canonical_text
-    for country in profile.normalization.locations.allowed_countries:
-        country_text = country.strip()
-        country_key = _normalize_country_token(country_text)
-        if country_key and country_text:
-            resolved.setdefault(country_key, country_text.title())
+    for country_key, config in profile.target_locations.countries.items():
+        canonical_text = _country_display_name(country_key, config.aliases)
+        for candidate in [country_key, canonical_text, *config.aliases]:
+            alias_key = _normalize_country_token(candidate)
+            if alias_key and canonical_text:
+                resolved[alias_key] = canonical_text
     return resolved
 
 
@@ -65,9 +144,9 @@ def normalize_country_name(country_raw: str | None, profile: ProfileConfig) -> s
 
 def get_allowed_countries(profile: ProfileConfig) -> set[str]:
     return {
-        _normalize_country_token(normalize_country_name(item, profile) or item)
-        for item in profile.normalization.locations.allowed_countries
-        if item.strip()
+        _normalize_country_token(country_key)
+        for country_key in profile.target_locations.countries
+        if country_key.strip()
     }
 
 

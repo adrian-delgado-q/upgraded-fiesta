@@ -25,6 +25,8 @@ llm:
   enabled: true
   timeout_seconds: 45
   max_concurrent_requests: 10
+  max_description_chars: 4000
+  cache_enabled: true
 worker:
   poll_seconds: 10
   log_idle_cycles: 6

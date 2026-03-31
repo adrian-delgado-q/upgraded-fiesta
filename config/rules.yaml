@@ -2,6 +2,14 @@ active_profile: robotics_platform_validation
 
 profiles:
   base_framework:
+    target_locations:
+      countries:
+        canada:
+          aliases: [Canada]
+          regions: [toronto, ontario, vancouver, british columbia, montreal]
+        united_states:
+          aliases: [usa, us, United States]
+          regions: [remote, new york, boston, seattle, san francisco, miami]
     normalization:
       title_replacements:
         qa: quality assurance
@@ -28,16 +36,6 @@ profiles:
           keywords: [remote, work from home, distributed]
         - value: onsite
           keywords: [onsite, on-site, field based, site based, commissioning, travel required]
-      locations:
-        allowed_countries: [canada, united states]
-        preferred_regions:
-          canada: [toronto, ontario, vancouver, british columbia, montreal]
-          united_states: [remote, new york, boston, seattle, san francisco, miami]
-        country_aliases:
-          canada: Canada
-          united states: United States
-          usa: United States
-          us: United States
 
     extraction:
       vocabularies:
@@ -438,13 +436,6 @@ profiles:
 
     search:
       providers: [ashby, lever, greenhouse]
-      locations:
-        - Toronto
-        - Ontario
-        - Vancouver
-        - Montreal
-        - Canada
-        - Remote Canada
 
     defaults:
       role_family: general
@@ -454,6 +445,11 @@ profiles:
 
   robotics_platform_validation:
     extends: [base_framework]
+    target_locations:
+      countries:
+        canada:
+          aliases: [Canada]
+          regions: [toronto, ontario]
 
     normalization:
       role_taxonomy:
@@ -630,6 +626,34 @@ profiles:
 
     scoring:
       categories:
+        location:
+          kind: rules
+          default_score: 0
+          rules:
+            - score: 10
+              reason: Preferred region with remote flexibility
+              when:
+                - field: location_country
+                  operator: in
+                  values: [canada]
+                - field: work_mode
+                  operator: equals
+                  value: remote
+
+            - score: 7
+              reason: Allowed country
+              when:
+                - field: location_country
+                  operator: in
+                  values: [canada]
+
+            - score: -30
+              reason: Location outside allowed countries
+              when:
+                - field: location_country
+                  operator: not_in
+                  values: [canada]
+
         trajectory_fit:
           kind: rules
           default_score: 0
@@ -728,17 +752,6 @@ profiles:
         - "commissioning engineer"
         - "site acceptance engineer"
         - "integration engineer robotics"
-      locations:
-        - Toronto
-        - Ontario
-        - Vancouver
-        - Canada
-        - Remote Canada
-        - New York
-        - Boston
-        - Seattle
-        - San Francisco
-
 
     defaults:
       role_family: robotics_validation

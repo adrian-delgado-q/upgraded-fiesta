@@ -39,18 +39,30 @@ def list_jobs(
     source: str | None = None,
     role_family: str | None = None,
     salary_known: bool = False,
+    offset: int = Query(default=0, ge=0),
     limit: int | None = Query(default=None, gt=0, le=500),
-) -> list[dict]:
-    return _serialize(
-        get_repository().list_jobs(
-        {
-            "triage_status": triage_status,
-            "source": source,
-            "role_family": role_family,
-            "salary_known": salary_known,
-        },
+) -> dict[str, object]:
+    filters = {
+        "triage_status": triage_status,
+        "source": source,
+        "role_family": role_family,
+        "salary_known": salary_known,
+    }
+    repository = get_repository()
+    jobs = repository.list_jobs(
+        filters,
         limit=limit,
-        )
+        offset=offset,
+    )
+    total = repository.count_jobs_for_filters(filters)
+    return _serialize(
+        {
+            "items": jobs,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": limit is not None and offset + len(jobs) < total,
+        }
     )
 
 

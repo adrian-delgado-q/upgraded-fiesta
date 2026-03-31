@@ -9,6 +9,7 @@ from shared.models import NormalizedJob
 from ..normalization import (
     canonical_key,
     find_allowed_country_in_text,
+    infer_compensation,
     infer_role_family,
     infer_seniority,
     infer_work_mode,
@@ -85,6 +86,7 @@ class ScrapedJobPosting:
         description = self.archive_text
         role_family = infer_role_family(f"{title_normalized} {description}", profile)
         seniority = infer_seniority(f"{title_normalized} {description}", profile)
+        compensation = infer_compensation(description)
         return NormalizedJob(
             source=self.provider,
             source_job_id=self.posting_id or None,
@@ -99,10 +101,10 @@ class ScrapedJobPosting:
             location_country=country,
             work_mode=work_mode,
             employment_type=None,
-            salary_min_cad=None,
-            salary_max_cad=None,
-            salary_currency=None,
-            salary_period=None,
+            salary_min_cad=compensation.salary_min if compensation else None,
+            salary_max_cad=compensation.salary_max if compensation else None,
+            salary_currency=compensation.currency if compensation else None,
+            salary_period=compensation.period if compensation else None,
             url=self.job_url,
             posted_at=None,
             canonical_key=canonical_key(

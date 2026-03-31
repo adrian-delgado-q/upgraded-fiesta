@@ -93,6 +93,7 @@ class Repository:
     def ensure_schema(self) -> None:
         create_schema(self.engine)
         self._ensure_jobs_payload_columns()
+        self._ensure_job_analyses_columns()
 
     def _ensure_jobs_payload_columns(self) -> None:
         required = {
@@ -109,6 +110,23 @@ class Repository:
         with self.engine.begin() as connection:
             for name, ddl in missing.items():
                 connection.execute(text(f"ALTER TABLE jobs ADD COLUMN {name} {ddl}"))
+
+    def _ensure_job_analyses_columns(self) -> None:
+        required = {
+            "cache_key": "TEXT",
+            "cache_source": "TEXT",
+        }
+        inspector = inspect(self.engine)
+        existing = {column["name"] for column in inspector.get_columns("job_analyses")}
+        missing = {name: ddl for name, ddl in required.items() if name not in existing}
+        if not missing:
+            with self.engine.begin() as connection:
+                connection.execute(text("CREATE INDEX IF NOT EXISTS ix_job_analyses_cache_key ON job_analyses (cache_key)"))
+            return
+        with self.engine.begin() as connection:
+            for name, ddl in missing.items():
+                connection.execute(text(f"ALTER TABLE job_analyses ADD COLUMN {name} {ddl}"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_job_analyses_cache_key ON job_analyses (cache_key)"))
 
     def _build_job_row(self, job: NormalizedJob) -> JobRow:
         return JobRow(
@@ -325,13 +343,44 @@ class Repository:
             session.commit()
             return int(score.id)
 
-    def save_analysis(self, job_id: int, version_id: int, model_name: str, prompt_version: str, analysis_json: dict[str, Any]) -> int:
+    def get_cached_analysis(self, cache_key: str) -> JobAnalysisRow | None:
+        with Session(self.engine) as session:
+            return session.exec(
+                select(JobAnalysisRow)
+                .where(JobAnalysisRow.cache_key == cache_key)
+                .order_by(desc(JobAnalysisRow.id))
+                .limit(1)
+            ).first()
+
+    def attach_analysis_to_job(self, job_id: int, analysis_id: int, state: str = JobState.ANALYZED.value) -> None:
+        with Session(self.engine) as session:
+            job = session.get(JobRow, job_id)
+            if not job:
+                return
+            job.latest_analysis_id = analysis_id
+            job.current_state = state
+            session.add(job)
+            session.commit()
+
+    def save_analysis(
+        self,
+        job_id: int,
+        version_id: int,
+        model_name: str,
+        prompt_version: str,
+        analysis_json: dict[str, Any],
+        *,
+        cache_key: str | None = None,
+        cache_source: str | None = None,
+    ) -> int:
         with Session(self.engine) as session:
             analysis = JobAnalysisRow(
                 job_id=job_id,
                 version_id=version_id,
                 model_name=model_name,
                 prompt_version=prompt_version,
+                cache_key=cache_key,
+                cache_source=cache_source,
                 analysis_json=analysis_json,
             )
             session.add(analysis)
@@ -428,9 +477,7 @@ class Repository:
             session.commit()
             return int(package_request.id)
 
-    def list_jobs(self, filters: dict[str, Any] | None = None, limit: int | None = None) -> list[JobListItem]:
-        filters = filters or {}
-        statement = select(JobRow, JobVersionRow.description_text).outerjoin(JobVersionRow, JobVersionRow.id == JobRow.latest_version_id)
+    def _apply_job_list_filters(self, statement: Any, filters: dict[str, Any]) -> Any:
         requested_triage_status = filters.get("triage_status")
 
         # Rejected jobs should never be surfaced in the console.
@@ -457,15 +504,35 @@ class Repository:
             statement = statement.where(
                 (JobRow.salary_min_cad.is_not(None)) | (JobRow.salary_max_cad.is_not(None))
             )
+        return statement
+
+    def list_jobs(
+        self,
+        filters: dict[str, Any] | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[JobListItem]:
+        filters = filters or {}
+        statement = select(JobRow, JobVersionRow.description_text).outerjoin(JobVersionRow, JobVersionRow.id == JobRow.latest_version_id)
+        statement = self._apply_job_list_filters(statement, filters)
         statement = statement.order_by(
             desc(func.coalesce(JobRow.final_score, JobRow.deterministic_score, 0)),
             desc(JobRow.discovered_at),
         )
+        if offset:
+            statement = statement.offset(max(0, int(offset)))
         if limit is not None:
             statement = statement.limit(max(1, int(limit)))
         with Session(self.engine) as session:
             rows = session.exec(statement).all()
             return [JobListItem(**job.model_dump(), description_text=description_text) for job, description_text in rows]
+
+    def count_jobs_for_filters(self, filters: dict[str, Any] | None = None) -> int:
+        filters = filters or {}
+        statement = self._apply_job_list_filters(select(func.count()).select_from(JobRow), filters)
+        with Session(self.engine) as session:
+            row = session.exec(statement).one()
+            return int(row)
 
     def get_job(self, job_id: int) -> JobRow | None:
         with Session(self.engine) as session:

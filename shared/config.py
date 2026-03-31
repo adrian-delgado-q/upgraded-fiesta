@@ -52,6 +52,8 @@ class LLMSettings(ConfigModel):
     enabled: bool = True
     timeout_seconds: int = 45
     max_concurrent_requests: int = 5
+    max_description_chars: int = 4000
+    cache_enabled: bool = True
 
 
 class RuntimeOptions(ConfigModel):

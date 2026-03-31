@@ -33,7 +33,8 @@ st.markdown(
     '<div class="console-page-note">Approve sends a role into Package. Reject removes it from every visible list.</div>',
     unsafe_allow_html=True,
 )
-jobs = client.get("/jobs", {"triage_status": "shortlisted"})
+jobs_response = client.get("/jobs", {"triage_status": "shortlisted"})
+jobs = jobs_response["items"]
 table_container = st.container()
 detail_container = None
 if st.session_state.get(SHORTLIST_SELECTION_KEY):

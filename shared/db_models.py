@@ -131,6 +131,8 @@ class JobAnalysisRow(SQLModel, table=True):
     version_id: int = Field(foreign_key="job_versions.id")
     model_name: str
     prompt_version: str
+    cache_key: str | None = Field(default=None, index=True)
+    cache_source: str | None = None
     analysis_json: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSON, nullable=False),

@@ -15,6 +15,7 @@ from shared.repository import Repository, apply_extraction_payload_to_job
 from .extraction import ExtractionArtifacts, extract_profile_data, merge_llm_extraction
 from .llm import LLMClient
 from .normalization import content_hash as build_content_hash
+from .normalization import infer_compensation
 from .profiles import ProfileConfig
 from .scoring import compute_deterministic_score, merge_llm_analysis
 from .scraper.models import ScrapedJobPosting
@@ -29,6 +30,8 @@ class PreparedJob:
     upsert_job_id: int
     version_id: int
     change_type: str
+    content_hash: str
+    cache_key: str | None
     artifacts: ExtractionArtifacts
     score: Any
 
@@ -59,6 +62,13 @@ class CollectorPipeline:
         return self._finalize_job(prepared_job, llm_analyses.get(0))
 
     def _prepare_job(self, job: NormalizedJob) -> PreparedJob:
+        if not (job.salary_min_cad or job.salary_max_cad):
+            compensation = infer_compensation(job.description_text)
+            if compensation:
+                job.salary_min_cad = compensation.salary_min
+                job.salary_max_cad = compensation.salary_max
+                job.salary_currency = compensation.currency
+                job.salary_period = compensation.period
         content_hash = build_content_hash(job)
         logger.debug(
             "Processing normalized job company=%s title=%s profile=%s",
@@ -93,45 +103,66 @@ class CollectorPipeline:
             upsert_job_id=upsert.job_id,
             version_id=upsert.version_id,
             change_type=upsert.change_type,
+            content_hash=content_hash,
+            cache_key=self.llm_client.build_cache_key(content_hash) if self.llm_client and self.llm_client.config.cache_enabled else None,
             artifacts=artifacts,
             score=score,
         )
 
-    def _run_llm_batch(self, prepared_jobs: list[PreparedJob]) -> dict[int, dict[str, Any]]:
+    def _run_llm_batch(self, prepared_jobs: list[PreparedJob]) -> dict[int, tuple[dict[str, Any], str]]:
         if not self.llm_client:
             return {}
-        eligible_jobs = {
-            index: prepared_job
-            for index, prepared_job in enumerate(prepared_jobs)
-            if self.llm_client and self.llm_client.should_analyze(prepared_job.score.deterministic_score)
-        }
+        analyses: dict[int, tuple[dict[str, Any], str]] = {}
+        eligible_jobs: dict[int, PreparedJob] = {}
+        for index, prepared_job in enumerate(prepared_jobs):
+            if not self.llm_client.should_analyze(prepared_job.score.deterministic_score):
+                continue
+            cache_key = prepared_job.cache_key
+            if cache_key:
+                cached_analysis = self.repository.get_cached_analysis(cache_key)
+                if cached_analysis:
+                    analyses[index] = (dict(cached_analysis.analysis_json), "cache")
+                    self.repository.attach_analysis_to_job(prepared_job.upsert_job_id, int(cached_analysis.id))
+                    continue
+            eligible_jobs[index] = prepared_job
         if not eligible_jobs:
-            return {}
-        return asyncio.run(self._collect_llm_analyses(eligible_jobs))
+            return analyses
+        analyses.update(asyncio.run(self._collect_llm_analyses(eligible_jobs)))
+        return analyses
 
-    async def _collect_llm_analyses(self, eligible_jobs: dict[int, PreparedJob]) -> dict[int, dict[str, Any]]:
+    async def _collect_llm_analyses(self, eligible_jobs: dict[int, PreparedJob]) -> dict[int, tuple[dict[str, Any], str]]:
         if not self.llm_client:
             return {}
         semaphore = asyncio.Semaphore(max(1, int(self.llm_client.config.max_concurrent_requests)))
 
-        async def analyze_one(index: int, prepared_job: PreparedJob) -> tuple[int, dict[str, Any]]:
+        async def analyze_one(index: int, prepared_job: PreparedJob) -> tuple[int, tuple[dict[str, Any], str]]:
             async with semaphore:
-                analysis = await self.llm_client.analyze_async(
-                    prepared_job.job,
-                    prepared_job.artifacts,
-                    prepared_job.score.deterministic_score,
-                )
-                return index, analysis
+                if hasattr(self.llm_client, "analyze_with_source_async"):
+                    analysis, source = await self.llm_client.analyze_with_source_async(
+                        prepared_job.job,
+                        prepared_job.artifacts,
+                        prepared_job.score.deterministic_score,
+                    )
+                else:
+                    analysis = await self.llm_client.analyze_async(
+                        prepared_job.job,
+                        prepared_job.artifacts,
+                        prepared_job.score.deterministic_score,
+                    )
+                    source = "remote"
+                return index, (analysis, source)
 
         tasks = [analyze_one(index, prepared_job) for index, prepared_job in eligible_jobs.items()]
         completed = await asyncio.gather(*tasks)
         return {index: analysis for index, analysis in completed}
 
-    def _finalize_job(self, prepared_job: PreparedJob, analysis: dict[str, Any] | None) -> dict[str, object]:
+    def _finalize_job(self, prepared_job: PreparedJob, analysis_result: tuple[dict[str, Any], str] | None) -> dict[str, object]:
         upsert_job_id = prepared_job.upsert_job_id
         version_id = prepared_job.version_id
         artifacts = prepared_job.artifacts
         score = prepared_job.score
+        analysis = analysis_result[0] if analysis_result else None
+        analysis_source = analysis_result[1] if analysis_result else None
         if analysis:
             llm_extraction = analysis.get("extraction", {})
             if isinstance(llm_extraction, dict):
@@ -145,13 +176,15 @@ class CollectorPipeline:
             llm_evaluation = analysis.get("evaluation", {})
             if isinstance(llm_evaluation, dict):
                 score = merge_llm_analysis(score, llm_evaluation, self.profile)
-            if self.llm_client:
+            if self.llm_client and analysis_source != "cache":
                 self.repository.save_analysis(
                     upsert_job_id,
                     version_id,
                     self.llm_client.model_name,
                     self.llm_client.prompt_version,
                     analysis,
+                    cache_key=prepared_job.cache_key if analysis_source == "remote" else None,
+                    cache_source=analysis_source,
                 )
         self.repository.save_job_payloads(
             upsert_job_id,
