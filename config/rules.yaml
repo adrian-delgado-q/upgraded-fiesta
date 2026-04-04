@@ -412,9 +412,9 @@ profiles:
           floor: -40
 
       thresholds:
-        shortlisted: 85
-        review: 68
-        maybe: 52
+        shortlisted: 100
+        review: 95
+        maybe: 70
 
       llm:
         analyze_threshold: 35

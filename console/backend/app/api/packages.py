@@ -9,5 +9,9 @@ router = APIRouter(prefix="/packages", tags=["packages"])
 
 
 @router.get("")
-def list_packages(limit: int | None = Query(default=None, gt=0, le=500)) -> list[dict]:
-    return jsonable_encoder(get_repository().list_packages(limit=limit))
+def list_packages(
+    status: str | None = Query(default=None),
+    limit: int | None = Query(default=None, gt=0, le=500),
+) -> list[dict]:
+    statuses = [status] if status else None
+    return jsonable_encoder(get_repository().list_packages(statuses=statuses, limit=limit))

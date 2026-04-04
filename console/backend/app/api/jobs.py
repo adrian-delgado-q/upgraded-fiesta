@@ -19,8 +19,7 @@ class ImportPayload(BaseModel):
     jobs: list[dict]
 
 
-class TriagePayload(BaseModel):
-    triage_status: str
+class ShortlistPayload(BaseModel):
     shortlist_reason: str | None = None
 
 
@@ -33,11 +32,21 @@ def import_jobs(payload: ImportPayload) -> list[dict]:
     return get_collector().import_scraped_jobs(jobs)
 
 
+@router.get("/counts")
+def get_counts() -> dict:
+    """Return per-triage-status job counts and per-status package counts."""
+    repository = get_repository()
+    triage = repository.count_jobs_by_triage_status()
+    packages = repository.count_packages_by_status()
+    return {"triage": triage, "packages": packages}
+
+
 @router.get("")
 def list_jobs(
     triage_status: str | None = None,
     source: str | None = None,
     role_family: str | None = None,
+    work_mode: str | None = None,
     salary_known: bool = False,
     offset: int = Query(default=0, ge=0),
     limit: int | None = Query(default=None, gt=0, le=500),
@@ -46,14 +55,11 @@ def list_jobs(
         "triage_status": triage_status,
         "source": source,
         "role_family": role_family,
+        "work_mode": work_mode,
         "salary_known": salary_known,
     }
     repository = get_repository()
-    jobs = repository.list_jobs(
-        filters,
-        limit=limit,
-        offset=offset,
-    )
+    jobs = repository.list_jobs(filters, limit=limit, offset=offset)
     total = repository.count_jobs_for_filters(filters)
     return _serialize(
         {
@@ -82,16 +88,10 @@ def get_job_score_breakdown(job_id: int) -> dict:
     return _serialize(breakdown)
 
 
-@router.patch("/{job_id}/triage-status")
-def patch_triage_status(job_id: int, payload: TriagePayload) -> dict:
+@router.post("/{job_id}/shortlist")
+def shortlist_job(job_id: int, payload: ShortlistPayload) -> dict:
     if not get_repository().get_job(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
-    get_repository().set_triage_status(job_id, payload.triage_status, payload.shortlist_reason)
-    return {"status": "ok"}
-
-
-@router.post("/{job_id}/shortlist")
-def shortlist_job(job_id: int, payload: TriagePayload) -> dict:
     get_repository().set_triage_status(job_id, "shortlisted", payload.shortlist_reason)
     return {"status": "shortlisted"}
 
@@ -100,6 +100,17 @@ def shortlist_job(job_id: int, payload: TriagePayload) -> dict:
 def reject_job(job_id: int) -> dict:
     get_repository().set_triage_status(job_id, "rejected")
     return {"status": "rejected"}
+
+
+@router.post("/{job_id}/restore")
+def restore_job(job_id: int) -> dict:
+    """Move a rejected job back to new so it re-appears in the Inbox."""
+    repository = get_repository()
+    job = repository.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    repository.set_triage_status(job_id, "new")
+    return {"status": "restored"}
 
 
 @router.post("/{job_id}/approve")

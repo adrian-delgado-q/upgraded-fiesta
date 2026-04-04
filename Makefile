@@ -43,7 +43,7 @@ status:
 	$(PYTHON) -m collector status --profile $(PROFILE)
 
 console:
-	$(PYTHON) run_console.py
+	$(PYTHON) scripts/run_console.py
 
 backend:
 	$(PYTHON) -m uvicorn console.backend.app.main:app --host 127.0.0.1 --port 8000
@@ -52,7 +52,7 @@ frontend:
 	JOB_CONSOLE_API_BASE_URL=http://127.0.0.1:8000 $(PYTHON) -m streamlit run console/frontend/streamlit_app.py --server.address 127.0.0.1 --server.port 8501
 
 compile:
-	$(PYTHON) -m compileall collector console shared scripts run_console.py
+	$(PYTHON) -m compileall collector console shared scripts
 
 runtime:
 	$(PYTHON) scripts/show_runtime.py

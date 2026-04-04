@@ -480,26 +480,32 @@ class Repository:
     def _apply_job_list_filters(self, statement: Any, filters: dict[str, Any]) -> Any:
         requested_triage_status = filters.get("triage_status")
 
-        # Rejected jobs should never be surfaced in the console.
-        statement = statement.where(JobRow.triage_status != TriageStatus.REJECTED.value)
+        if requested_triage_status == TriageStatus.REJECTED.value:
+            # Explicitly scoped to rejected — used by the Rejected view.
+            statement = statement.where(JobRow.triage_status == TriageStatus.REJECTED.value)
+        else:
+            # All other views never surface rejected jobs.
+            statement = statement.where(JobRow.triage_status != TriageStatus.REJECTED.value)
 
-        # Inbox-facing default behavior excludes items that already left review.
-        if requested_triage_status in (None, ""):
-            statement = statement.where(
-                JobRow.triage_status.not_in(
-                    (
-                        TriageStatus.SHORTLISTED.value,
-                        TriageStatus.QUEUED_FOR_PACKAGE.value,
-                        TriageStatus.PACKAGE_READY.value,
+            # Inbox-facing default (no status filter) excludes items that already left review.
+            if requested_triage_status in (None, ""):
+                statement = statement.where(
+                    JobRow.triage_status.not_in(
+                        (
+                            TriageStatus.SHORTLISTED.value,
+                            TriageStatus.QUEUED_FOR_PACKAGE.value,
+                            TriageStatus.PACKAGE_READY.value,
+                        )
                     )
                 )
-            )
-        elif requested_triage_status == TriageStatus.REJECTED.value:
-            statement = statement.where(False)
+            else:
+                statement = statement.where(JobRow.triage_status == requested_triage_status)
 
-        for key in ("triage_status", "source", "role_family"):
+        for key in ("source", "role_family"):
             if value := filters.get(key):
                 statement = statement.where(getattr(JobRow, key) == value)
+        if filters.get("work_mode"):
+            statement = statement.where(JobRow.work_mode == filters["work_mode"])
         if filters.get("salary_known"):
             statement = statement.where(
                 (JobRow.salary_min_cad.is_not(None)) | (JobRow.salary_max_cad.is_not(None))
@@ -534,9 +540,19 @@ class Repository:
             row = session.exec(statement).one()
             return int(row)
 
-    def get_job(self, job_id: int) -> JobRow | None:
+    def get_job(self, job_id: int) -> JobListItem | None:
+        statement = (
+            select(JobRow, JobVersionRow.description_text)
+            .outerjoin(JobVersionRow, JobVersionRow.id == JobRow.latest_version_id)
+            .where(JobRow.id == job_id)
+            .limit(1)
+        )
         with Session(self.engine) as session:
-            return session.get(JobRow, job_id)
+            row = session.exec(statement).first()
+            if row is None:
+                return None
+            job, description_text = row
+            return JobListItem(**job.model_dump(), description_text=description_text)
 
     def get_job_score_breakdown(self, job_id: int) -> JobScoreRow | None:
         with Session(self.engine) as session:

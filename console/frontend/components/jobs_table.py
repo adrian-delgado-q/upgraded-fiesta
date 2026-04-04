@@ -34,6 +34,17 @@ DEFAULT_SHORTLIST_ACTIONS = (
 )
 
 
+def _chip(label: str, icon: str = "", css_class: str = "") -> str:
+    """Return an HTML chip span with optional icon and CSS variant class."""
+    import html as _html
+
+    cls = "console-chip"
+    if css_class:
+        cls = f"{cls} {css_class}"
+    icon_html = f'<span class="console-chip-icon">{_html.escape(icon)}</span>' if icon else ""
+    return f'<span class="{cls}">{icon_html}{_html.escape(label)}</span>'
+
+
 def _truncate(value: str, max_chars: int) -> str:
     compact = " ".join(value.split())
     if len(compact) <= max_chars:

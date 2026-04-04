@@ -2,134 +2,163 @@ from __future__ import annotations
 
 import streamlit as st
 
-from console.frontend.config import get_api_base_url
 from console.frontend.components.detail_panel import render_detail_panel
 from console.frontend.components.jobs_table import SELECTION_KEY, render_jobs_table
-from console.frontend.services import ApiClient
 from console.frontend.styles import apply_shared_styles
+from console.frontend.utils import execute_action, get_client, render_pager
 
-
-client = ApiClient(get_api_base_url())
 apply_shared_styles()
-PENDING_ACTION_KEY = "inbox_pending_action"
+
+client = get_client()
+
+# ── Constants ─────────────────────────────────────────────────────────────
 PAGE_KEY = "inbox_page"
-FILTER_SIGNATURE_KEY = "inbox_filter_signature"
+FILTER_SIG_KEY = "inbox_filter_sig"
 
-
-pending_action = st.session_state.pop(PENDING_ACTION_KEY, None)
-if pending_action:
-    action_name, action_job_id = pending_action
-    if action_name == "reject":
-        client.post(f"/jobs/{action_job_id}/reject", {})
-    elif action_name == "shortlist":
-        client.post(
-            f"/jobs/{action_job_id}/shortlist",
-            {"triage_status": "shortlisted", "shortlist_reason": "Manual shortlist"},
-        )
-    st.session_state.pop(SELECTION_KEY, None)
-    st.rerun()
-
-st.title("Inbox")
-st.caption("Review fresh jobs. Shortlisting moves them out of Inbox. Rejected jobs are hidden everywhere.")
+# ── Sidebar filters ───────────────────────────────────────────────────────
 with st.sidebar:
-    st.caption("Status")
-    triage_status = st.selectbox(
-        "Status",
-        ["", "new"],
-        label_visibility="collapsed",
-    )
-    st.caption("Source")
-    source = st.selectbox("Source", ["", "ashby", "lever", "greenhouse"], label_visibility="collapsed")
-    st.caption("Role family")
-    role_family = st.text_input("Role family", label_visibility="collapsed")
-    st.caption("Page size")
-    page_size = st.number_input("Page size", min_value=25, max_value=500, value=100, step=25, label_visibility="collapsed")
-    salary_known = st.checkbox("Salary known")
+    st.markdown("### Inbox filters")
 
-filter_signature = (triage_status, source, role_family.strip(), salary_known, int(page_size))
-if st.session_state.get(FILTER_SIGNATURE_KEY) != filter_signature:
-    st.session_state[FILTER_SIGNATURE_KEY] = filter_signature
+    # Source list — fetched from settings; fallback to defaults
+    @st.cache_data(ttl=300)
+    def _get_providers() -> list[str]:
+        try:
+            s = get_client().get_settings()
+            return sorted(s.get("scraper_defaults", {}).get("providers", []))
+        except Exception:
+            return ["ashby", "greenhouse", "lever"]
+
+    providers = _get_providers()
+    source = st.selectbox(
+        "Source",
+        ["All"] + providers,
+        index=st.session_state.get("inbox_filter_source_idx", 0),
+        key="inbox_filter_source",
+    )
+    st.session_state["inbox_filter_source_idx"] = ["All", *providers].index(source)
+
+    work_mode = st.selectbox(
+        "Work mode",
+        ["All", "remote", "hybrid", "onsite"],
+        index=st.session_state.get("inbox_filter_wm_idx", 0),
+        key="inbox_filter_wm",
+    )
+    st.session_state["inbox_filter_wm_idx"] = ["All", "remote", "hybrid", "onsite"].index(work_mode)
+
+    role_family = st.text_input(
+        "Role family",
+        value=st.session_state.get("inbox_filter_role", ""),
+        key="inbox_filter_role_input",
+        placeholder="e.g. engineering",
+    )
+    st.session_state["inbox_filter_role"] = role_family
+
+    salary_known = st.checkbox(
+        "Salary known only",
+        value=st.session_state.get("inbox_filter_salary", False),
+        key="inbox_filter_salary_cb",
+    )
+    st.session_state["inbox_filter_salary"] = salary_known
+
+    page_size = st.select_slider(
+        "Page size",
+        options=[25, 50, 100, 200],
+        value=st.session_state.get("inbox_filter_pgsz", 50),
+        key="inbox_filter_pgsz_sl",
+    )
+    st.session_state["inbox_filter_pgsz"] = page_size
+
+# Detect filter changes → reset pagination
+filter_sig = (source, work_mode, role_family.strip(), salary_known, page_size)
+if st.session_state.get(FILTER_SIG_KEY) != filter_sig:
+    st.session_state[FILTER_SIG_KEY] = filter_sig
     st.session_state[PAGE_KEY] = 0
 
 current_page = int(st.session_state.get(PAGE_KEY, 0))
-response = client.get(
-    "/jobs",
-    {
-        "triage_status": triage_status,
-        "source": source,
-        "role_family": role_family,
-        "salary_known": salary_known,
-        "limit": int(page_size),
-        "offset": current_page * int(page_size),
-    },
-)
+
+# ── Fetch ─────────────────────────────────────────────────────────────────
+params: dict = {
+    "triage_status": "new",
+    "salary_known": salary_known,
+    "limit": page_size,
+    "offset": current_page * page_size,
+}
+if source != "All":
+    params["source"] = source
+if work_mode != "All":
+    params["work_mode"] = work_mode
+if role_family.strip():
+    params["role_family"] = role_family.strip()
+
+response = client.list_jobs(**params)
 jobs = response["items"]
-total_jobs = int(response["total"])
-page_size_value = int(page_size)
-total_pages = max(1, (total_jobs + page_size_value - 1) // page_size_value)
-if total_jobs and current_page >= total_pages:
+total = int(response["total"])
+total_pages = max(1, (total + page_size - 1) // page_size)
+
+# Guard stale page
+if total and current_page >= total_pages:
     st.session_state[PAGE_KEY] = total_pages - 1
     st.rerun()
 
-page_start = (current_page * page_size_value) + 1 if total_jobs else 0
-page_end = min((current_page + 1) * page_size_value, total_jobs)
-st.caption(f"Showing {page_start}-{page_end} of {total_jobs} matching unprocessed jobs")
+# ── Header ────────────────────────────────────────────────────────────────
+st.title(f"📥 Inbox ({total})")
+st.caption("Shortlist keeps promising roles. Reject hides them. Both actions leave Inbox immediately.")
 
-pager_cols = st.columns([1, 1.5, 1, 3])
-prev_disabled = current_page <= 0
-next_disabled = current_page >= (total_pages - 1) or total_jobs == 0
-if pager_cols[0].button("Previous", use_container_width=True, disabled=prev_disabled):
-    st.session_state[PAGE_KEY] = max(0, current_page - 1)
-    st.rerun()
-pager_cols[1].markdown(
-    f"<div class='console-toolbar'><strong>Page {current_page + 1}</strong> of {total_pages}</div>",
-    unsafe_allow_html=True,
-)
-if pager_cols[2].button("Next", use_container_width=True, disabled=next_disabled):
-    st.session_state[PAGE_KEY] = min(total_pages - 1, current_page + 1)
-    st.rerun()
-pager_cols[3].markdown(
-    f"<div class='console-toolbar'><strong>{len(jobs)}</strong> jobs on this page</div>",
-    unsafe_allow_html=True,
-)
+# ── Layout: table + optional detail panel side-by-side ───────────────────
+selected_id = st.session_state.get(SELECTION_KEY)
+if selected_id:
+    table_col, detail_col = st.columns([1.75, 1.0], vertical_alignment="top")
+else:
+    table_col = st.container()
+    detail_col = None
 
-table_container = st.container()
-detail_container = None
-if st.session_state.get(SELECTION_KEY):
-    table_container, detail_container = st.columns([1.75, 1.0], vertical_alignment="top")
+with table_col:
+    render_pager(page_key=PAGE_KEY, total=total, page_size=page_size, current_page=current_page)
 
-with table_container:
-    selected_id, action = render_jobs_table(
+    new_selected_id, action = render_jobs_table(
         jobs,
         selection_key=SELECTION_KEY,
-        empty_message="No jobs match the current inbox filters.",
+        empty_message="No jobs match the current filters.",
         enable_sorting=True,
-        toolbar_message="Shortlist moves items out of Inbox. Reject hides them everywhere.",
+        toolbar_message="Shortlist moves roles out of Inbox. Reject hides them everywhere.",
     )
-if action:
-    st.session_state[PENDING_ACTION_KEY] = action
-    st.rerun()
 
-if selected_id:
-    with detail_container or st.container():
-        st.markdown("### Open Role")
-        job = client.get(f"/jobs/{selected_id}")
-        breakdown = None
-        try:
-            breakdown = client.get(f"/jobs/{selected_id}/score-breakdown")
-        except Exception:
-            breakdown = None
-        col1, col2, col3 = st.columns(3)
-        if col1.button("Close", key=f"detail-close-{selected_id}"):
+    if action:
+        action_name, action_job_id = action
+        if execute_action(client, action_name, action_job_id, selection_key=SELECTION_KEY):
+            st.rerun()
+
+# ── Detail panel ──────────────────────────────────────────────────────────
+if new_selected_id and detail_col:
+    with detail_col:
+        job = client.get_job(new_selected_id)
+        breakdown = client.get_score_breakdown(new_selected_id)
+
+        close_col, reject_col = st.columns(2)
+        if close_col.button("Close", key=f"inbox-close-{new_selected_id}", use_container_width=True):
             st.session_state.pop(SELECTION_KEY, None)
             st.rerun()
-        if col2.button("Reject", key=f"detail-reject-{selected_id}"):
-            client.post(f"/jobs/{selected_id}/reject", {})
-            st.session_state.pop(SELECTION_KEY, None)
-            st.rerun()
-        if col3.button("Shortlist", key=f"detail-shortlist-{selected_id}"):
-            client.post(f"/jobs/{selected_id}/shortlist", {"triage_status": "shortlisted", "shortlist_reason": "Manual shortlist"})
-            st.session_state.pop(SELECTION_KEY, None)
-            st.rerun()
-        st.markdown(f"[Open Posting]({job['url']})")
+        if reject_col.button("✕ Reject", key=f"inbox-reject-{new_selected_id}", use_container_width=True):
+            if execute_action(client, "reject", new_selected_id, selection_key=SELECTION_KEY):
+                st.rerun()
+
+        shortlist_note = st.text_input(
+            "Shortlist note (optional)",
+            key=f"inbox-sl-note-{new_selected_id}",
+            placeholder="Why does this role stand out?",
+        )
+        if st.button("★ Shortlist", key=f"inbox-shortlist-{new_selected_id}", use_container_width=True):
+            if execute_action(
+                client,
+                "shortlist",
+                new_selected_id,
+                reason=shortlist_note.strip() or None,
+                selection_key=SELECTION_KEY,
+            ):
+                st.rerun()
+
+        if job.get("url"):
+            st.markdown(f"[Open posting ↗]({job['url']})")
+
         render_detail_panel(job, breakdown)
+
